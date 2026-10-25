@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bgMaskGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#059669"/>
+      <stop offset="100%" stop-color="#047857"/>
+    </linearGradient>
+    <linearGradient id="crossGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#ecfdf5"/>
+    </linearGradient>
+    <filter id="dropShadow" x="-10%" y="-10%" width="130%" height="130%">
+      <feDropShadow dx="0" dy="6" stdDeviation="10" flood-color="#022c22" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+
+  <!-- Full-bleed background for maskable icon -->
+  <rect width="512" height="512" fill="url(#bgMaskGrad)"/>
+
+  <!-- Centered safe-zone group scaled to 75% inside safe bounds -->
+  <g transform="translate(64, 64) scale(0.75)">
+    <!-- Medical Cross with Shadow -->
+    <g filter="url(#dropShadow)">
+      <rect x="216" y="116" width="80" height="280" rx="28" fill="url(#crossGrad)"/>
+      <rect x="116" y="216" width="280" height="80" rx="28" fill="url(#crossGrad)"/>
+    </g>
+
+    <!-- Center Capsule Accent Badge -->
+    <g transform="translate(256,256)">
+      <g transform="rotate(-45)">
+        <path d="M -48,-18 L -10,-18 L -10,18 L -48,18 C -58,18 -66,10 -66,0 C -66,-10 -58,-18 -48,-18 Z" fill="#059669"/>
+        <path d="M -10,-18 L 28,-18 C 38,-18 46,-10 46,0 C 46,10 38,18 28,18 L -10,18 Z" fill="#ffffff"/>
+        <line x1="-10" y1="-18" x2="-10" y2="18" stroke="#047857" stroke-width="2"/>
+      </g>
+    </g>
+  </g>
+</svg>

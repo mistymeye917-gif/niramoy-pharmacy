@@ -1,0 +1,7 @@
+{
+  "name": "Niramoy Pharmacy Management System",
+  "description": "Professional offline Pharmacy Management & POS system for Bangladesh retail pharmacies with FEFO inventory, multi-method payments, bilingual Bengali/English interface, local SQLite, reporting, and backups.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+

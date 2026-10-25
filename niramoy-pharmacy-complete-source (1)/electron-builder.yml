@@ -1,0 +1,23 @@
+appId: com.niramoy.pharmacy
+productName: Niramoy Pharmacy Management System
+copyright: Copyright © 2026 Niramoy Health Ltd.
+directories:
+  output: release
+files:
+  - dist/**/*
+  - dist-electron/**/*
+  - data/**/*
+  - package.json
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  legalTrademarks: Niramoy Pharmacy Bangladesh
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  perMachine: false
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Niramoy Pharmacy
