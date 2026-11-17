@@ -1,9 +1,11 @@
+import 'dotenv/config';
 import express, { Request, Response } from 'express';
 import path from 'node:path';
 import fs from 'node:fs';
 import zlib from 'node:zlib';
 import { createServer as createViteServer } from 'vite';
 import { initDatabase, getDb, hashPassword, verifyPassword } from './src/db/database.ts';
+import { isCloudSyncConfigured, restoreDatabaseFromCloudIfConfigured, syncDatabaseToCloud } from './src/db/cloudSync.ts';
 import * as services from './src/db/services.ts';
 import * as XLSX from 'xlsx';
 
@@ -12,10 +14,35 @@ const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
 app.use(express.json({ limit: '10mb' }));
 
-// Initialize persistent SQLite local database
-console.log('[System] Initializing local SQLite database...');
-initDatabase();
-console.log('[System] Database ready with tables and Bangladesh pharmaceutical catalog.');
+// Automatic write-through cloud sync to Turso after successful API mutations
+app.use('/api', (req, res, next) => {
+  const isReadOrPreview =
+    req.method === 'GET' ||
+    req.method === 'HEAD' ||
+    req.method === 'OPTIONS' ||
+    req.path === '/auth/login' ||
+    (req.path === '/medicines/import-excel' && req.body?.mode === 'preview');
+
+  if (isReadOrPreview || !isCloudSyncConfigured()) {
+    return next();
+  }
+
+  const origJson = res.json.bind(res);
+  let sent = false;
+  res.json = ((body: any) => {
+    if (sent) return res;
+    sent = true;
+    if (res.statusCode >= 200 && res.statusCode < 300) {
+      syncDatabaseToCloud()
+        .catch((err) => console.error('[Cloud Sync] Upload error:', err.message))
+        .finally(() => origJson(body));
+      return res;
+    }
+    return origJson(body);
+  }) as any;
+
+  next();
+});
 
 // ----------------------------------------------------
 // API ROUTES
@@ -463,7 +490,7 @@ app.post('/api/database/reset', (req: Request, res: Response) => {
 
 // Full Project Source ZIP Export Endpoint (Pure ESM Node.js ZIP builder)
 function collectSourceFiles(baseDir: string, currentDir: string, out: string[] = []): string[] {
-  const excludedTopDirs = new Set(['node_modules', 'dist', 'dist-electron', 'release', '.git', 'dev-dist']);
+  const excludedTopDirs = new Set(['node_modules', 'dist', 'dist-electron', 'release', '.git', 'dev-dist', 'backups']);
   for (const entry of fs.readdirSync(currentDir, { withFileTypes: true })) {
     const fullPath = path.join(currentDir, entry.name);
     const relPosix = path.relative(baseDir, fullPath).split(path.sep).join('/');
@@ -581,6 +608,20 @@ app.get('/api/diagnostics/run-tests', async (req: Request, res: Response) => {
 // DEV SERVER & STATIC ASSETS
 // ----------------------------------------------------
 async function startServer() {
+  try {
+    const cloudState = await restoreDatabaseFromCloudIfConfigured();
+    console.log('[System] Initializing local SQLite database...');
+    initDatabase();
+    console.log('[System] Database ready.');
+    if (cloudState.configured && !cloudState.restored) {
+      await syncDatabaseToCloud();
+      console.log('[Cloud Sync] Initialized persistent database snapshot in Turso.');
+    }
+  } catch (err: any) {
+    console.error('[Cloud Sync] Startup restore failed, continuing with local SQLite:', err.message);
+    initDatabase();
+  }
+
   const isProduction = process.env.NODE_ENV === 'production';
 
   if (!isProduction) {

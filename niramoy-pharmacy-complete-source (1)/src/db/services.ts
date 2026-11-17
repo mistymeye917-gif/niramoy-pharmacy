@@ -2,7 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
-import { getDb, getCurrentDbPath, hashPassword, verifyPassword, populateSeedData } from './database.ts';
+import { getDb, getCurrentDbPath, hashPassword, verifyPassword, populateSeedData, initDatabase } from './database.ts';
 import {
   Medicine,
   InventoryBatch,
@@ -1306,15 +1306,24 @@ export function restoreBackup(backupFilePath: string, adminPassword: string): bo
     throw new Error('Corrupt or invalid backup file: SQLite header missing.');
   }
 
-  // Restore by copying candidate backup over current database file safely
+  // Restore by closing active handle, replacing database file cleanly, and reopening
   const currentPath = getCurrentDbPath();
-  
-  // Close existing db if possible or copy file
+  try {
+    db.close();
+  } catch {
+    // ignore if already closed
+  }
+  for (const ext of ['-wal', '-shm']) {
+    if (fs.existsSync(currentPath + ext)) {
+      fs.unlinkSync(currentPath + ext);
+    }
+  }
   fs.copyFileSync(backupFilePath, currentPath);
+  const reopenedDb = initDatabase(currentPath);
 
-  // Log audit
+  // Log audit on restored database
   const now = new Date().toISOString();
-  db.prepare(`
+  reopenedDb.prepare(`
     INSERT INTO audit_logs (user_action, entity_type, entity_id, details, timestamp)
     VALUES ('DB_RESTORE', 'DATABASE', '0', ?, ?)
   `).run(`Database restored from backup: ${backupFilePath}`, now);
