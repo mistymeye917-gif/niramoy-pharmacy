@@ -13,6 +13,17 @@ export function getDb(): DatabaseSync {
   return dbInstance;
 }
 
+export function closeDatabase(): void {
+  if (dbInstance) {
+    try {
+      dbInstance.close();
+    } catch {
+      // ignore if already closed
+    }
+    dbInstance = null;
+  }
+}
+
 export function hashPassword(password: string, salt?: string): { hash: string; salt: string } {
   const actualSalt = salt || crypto.randomBytes(16).toString('hex');
   const derivedKey = crypto.scryptSync(password, actualSalt, 64);

@@ -7,9 +7,7 @@ console.log('====================================================');
 console.log('Executing 22 core business & relational database tests...\n');
 
 const res = spawnSync('npx', ['tsx', '-e', `
-  import { initDatabase } from './src/db/database.ts';
   import { runAutomatedTests } from './tests/test-runner.ts';
-  initDatabase();
   const summary = runAutomatedTests();
   console.log(JSON.stringify(summary, null, 2));
 `], { encoding: 'utf-8' });

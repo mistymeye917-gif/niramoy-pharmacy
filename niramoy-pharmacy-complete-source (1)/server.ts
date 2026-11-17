@@ -490,7 +490,7 @@ app.post('/api/database/reset', (req: Request, res: Response) => {
 
 // Full Project Source ZIP Export Endpoint (Pure ESM Node.js ZIP builder)
 function collectSourceFiles(baseDir: string, currentDir: string, out: string[] = []): string[] {
-  const excludedTopDirs = new Set(['node_modules', 'dist', 'dist-electron', 'release', '.git', 'dev-dist', 'backups']);
+  const excludedTopDirs = new Set(['node_modules', 'dist', 'dist-electron', 'release', '.git', 'dev-dist', 'backups', 'data']);
   for (const entry of fs.readdirSync(currentDir, { withFileTypes: true })) {
     const fullPath = path.join(currentDir, entry.name);
     const relPosix = path.relative(baseDir, fullPath).split(path.sep).join('/');

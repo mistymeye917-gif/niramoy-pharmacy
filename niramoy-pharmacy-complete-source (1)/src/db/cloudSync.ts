@@ -148,6 +148,11 @@ export function syncDatabaseToCloud(): Promise<void> {
     );
 
     try {
+      try {
+        db.exec('PRAGMA wal_checkpoint(TRUNCATE);');
+      } catch {
+        // Ignore checkpoint error if DB is not in WAL mode
+      }
       db.exec(`VACUUM INTO '${tmpSnapshot.replace(/'/g, "''")}';`);
       const dbBuffer = fs.readFileSync(tmpSnapshot);
       const sha256 = crypto.createHash('sha256').update(dbBuffer).digest('hex');

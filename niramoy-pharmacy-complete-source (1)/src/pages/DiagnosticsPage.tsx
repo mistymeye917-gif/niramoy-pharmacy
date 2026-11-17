@@ -77,6 +77,16 @@ export const DiagnosticsPage: React.FC<DiagnosticsPageProps> = ({
         </button>
       </div>
 
+      {/* Sandbox Safety Notice */}
+      <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-900 flex items-center gap-2.5">
+        <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+        <span>
+          {lang === 'bn'
+            ? 'স্যান্ডবক্স মোড সক্রিয়: এই ২২টি পরীক্ষা আলাদা অস্থায়ী ডেটাবেসে চলে — আপনার আসল ফার্মেসি ডেটা বা ড্যাশবোর্ডে কোনো প্রভাব পড়ে না।'
+            : 'Sandbox Mode Active: All 22 checks execute inside an isolated temporary database — your live pharmacy records are never touched.'}
+        </span>
+      </div>
+
       {error && (
         <div className="p-4 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-800">
           {error}

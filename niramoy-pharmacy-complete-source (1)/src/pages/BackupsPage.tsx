@@ -60,8 +60,8 @@ export const BackupsPage: React.FC<BackupsPageProps> = ({
       setBackupNotice({
         type: 'success',
         message: lang === 'bn'
-          ? 'সম্পূর্ণ প্রজেক্ট সোর্স কোড ZIP (৯২৬ KB, ৬৮টি ফাইল ও SQLite ডেটাবেস) সফলভাবে ডাউনলোড হচ্ছে।'
-          : 'Full project source ZIP (~926 KB, 68 files & SQLite DB) download initiated.'
+          ? 'সম্পূর্ণ পরিষ্কার প্রজেক্ট সোর্স কোড ZIP সফলভাবে ডাউনলোড হচ্ছে (কোনো পুরানো টেস্ট ডেটাবেস ছাড়াই)।'
+          : 'Clean project source code ZIP download initiated (without local test DB files).'
       });
     } catch (err: any) {
       setBackupNotice({

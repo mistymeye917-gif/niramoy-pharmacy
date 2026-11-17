@@ -20,6 +20,12 @@ import {
   BackupItem
 } from '../types/pharmacy.ts';
 
+let backupDirOverride: string | null = null;
+
+export function setBackupDirOverride(dir: string | null): void {
+  backupDirOverride = dir;
+}
+
 // ----------------------------------------------------
 // SETTINGS
 // ----------------------------------------------------
@@ -1205,11 +1211,13 @@ export function createBackup(destination: 'local' | 'usb' | 'shared' = 'local', 
   const timestamp = now.toISOString().replace(/[:.]/g, '-');
   const filename = `pharmacy-backup-${timestamp}.sqlite`;
 
-  let targetDir = path.resolve(process.cwd(), 'backups');
-  if (destination === 'usb' && settings.usb_folder_path) {
-    targetDir = settings.usb_folder_path;
-  } else if (destination === 'shared' && settings.shared_folder_path) {
-    targetDir = settings.shared_folder_path;
+  let targetDir = backupDirOverride || path.resolve(process.cwd(), 'backups');
+  if (!backupDirOverride) {
+    if (destination === 'usb' && settings.usb_folder_path) {
+      targetDir = settings.usb_folder_path;
+    } else if (destination === 'shared' && settings.shared_folder_path) {
+      targetDir = settings.shared_folder_path;
+    }
   }
 
   if (!fs.existsSync(targetDir)) {
@@ -1217,7 +1225,7 @@ export function createBackup(destination: 'local' | 'usb' | 'shared' = 'local', 
       fs.mkdirSync(targetDir, { recursive: true });
     } catch {
       // Fallback to local backups folder if USB/shared folder is not physically plugged in
-      targetDir = path.resolve(process.cwd(), 'backups');
+      targetDir = backupDirOverride || path.resolve(process.cwd(), 'backups');
       if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
     }
   }

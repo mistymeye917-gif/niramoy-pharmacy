@@ -1,7 +1,8 @@
 import { DatabaseSync } from 'node:sqlite';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { initDatabase, getDb, hashPassword, verifyPassword } from '../src/db/database.ts';
+import * as os from 'node:os';
+import { initDatabase, getDb, closeDatabase, getCurrentDbPath } from '../src/db/database.ts';
 import * as services from '../src/db/services.ts';
 
 export interface TestResultItem {
@@ -25,7 +26,15 @@ export interface TestSuiteSummary {
 
 export function runAutomatedTests(): TestSuiteSummary {
   const results: TestResultItem[] = [];
-  const startTime = Date.now();
+  const previousDbPath = getCurrentDbPath();
+  const sandboxDir = fs.mkdtempSync(path.join(os.tmpdir(), 'niramoy-diag-'));
+  const sandboxDbPath = path.join(sandboxDir, 'diag-test.db');
+  const sandboxBackupDir = path.join(sandboxDir, 'backups');
+  fs.mkdirSync(sandboxBackupDir, { recursive: true });
+
+  closeDatabase();
+  services.setBackupDirOverride(sandboxBackupDir);
+  initDatabase(sandboxDbPath);
 
   function test(id: number, name: string, category: string, fn: () => void) {
     const t0 = Date.now();
@@ -50,6 +59,8 @@ export function runAutomatedTests(): TestSuiteSummary {
       });
     }
   }
+
+  try {
 
   // 1. Creating a medicine and a batch
   test(1, 'Creating a medicine and an inventory batch', 'Catalog & Inventory', () => {
@@ -877,7 +888,7 @@ export function runAutomatedTests(): TestSuiteSummary {
     }
 
     // Verify candidate backup file restores into a clean database with PRAGMA integrity_check === 'ok'
-    const testRestorePath = path.resolve(process.cwd(), 'data', 'restore-verify-test.sqlite');
+    const testRestorePath = path.join(sandboxDir, 'restore-verify-test.sqlite');
     fs.copyFileSync(backup.filepath, testRestorePath);
     const testDb = new DatabaseSync(testRestorePath);
     const integrity = testDb.prepare('PRAGMA integrity_check;').get() as { integrity_check: string };
@@ -925,4 +936,16 @@ export function runAutomatedTests(): TestSuiteSummary {
     timestamp: new Date().toISOString(),
     results
   };
+  } finally {
+    closeDatabase();
+    services.setBackupDirOverride(null);
+    try {
+      fs.rmSync(sandboxDir, { recursive: true, force: true });
+    } catch {
+      // ignore temp cleanup errors
+    }
+    if (previousDbPath) {
+      initDatabase(previousDbPath);
+    }
+  }
 }
