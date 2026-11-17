@@ -12,7 +12,8 @@ import {
   Shield,
   Upload,
   Globe,
-  Sliders
+  Sliders,
+  Lock
 } from 'lucide-react';
 
 interface SettingsPageProps {
@@ -32,6 +33,14 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   const [isSaving, setIsSaving] = useState(false);
   const [savedNotice, setSavedNotice] = useState(false);
   const [errorNotice, setErrorNotice] = useState('');
+
+  // Change Password inside Settings
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [isChangingPass, setIsChangingPass] = useState(false);
+  const [passSuccess, setPassSuccess] = useState('');
+  const [passError, setPassError] = useState('');
 
   const t = (key: any) => getTranslation(lang, key);
 
@@ -62,6 +71,39 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
       setErrorNotice(err.message || 'Failed to save settings');
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handlePasswordChange = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPassSuccess('');
+    setPassError('');
+
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      setPassError(lang === 'bn' ? 'সবগুলো পাসওয়ার্ড ঘর পূরণ করুন।' : 'Please fill all password fields.');
+      return;
+    }
+    if (newPassword.length < 4) {
+      setPassError(lang === 'bn' ? 'নতুন পাসওয়ার্ড কমপক্ষে ৪ অক্ষরের হতে হবে।' : 'New password must be at least 4 characters long.');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPassError(lang === 'bn' ? 'নতুন পাসওয়ার্ড দুটি মিলছে না।' : 'New passwords do not match.');
+      return;
+    }
+
+    setIsChangingPass(true);
+    try {
+      await api.changePassword(currentPassword, newPassword);
+      setPassSuccess(lang === 'bn' ? 'পাসওয়ার্ড সফলভাবে পরিবর্তন হয়েছে!' : 'Administrator password updated successfully!');
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      setTimeout(() => setPassSuccess(''), 5000);
+    } catch (err: any) {
+      setPassError(err.message || (lang === 'bn' ? 'পুরানো পাসওয়ার্ডটি সঠিক নয়।' : 'Failed to update password'));
+    } finally {
+      setIsChangingPass(false);
     }
   };
 
@@ -324,6 +366,79 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
             className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs cursor-pointer disabled:opacity-50"
           >
             {isSaving ? 'Saving Changes...' : t('save')}
+          </button>
+        </div>
+      </form>
+
+      {/* Change Administrator Password (Old Password -> New Password) */}
+      <form onSubmit={handlePasswordChange} className="bg-white p-6 rounded-xl border border-slate-200 shadow-xs space-y-4 text-xs">
+        <div className="flex items-center gap-2 text-sm font-bold text-slate-800 border-b border-slate-100 pb-3">
+          <Lock className="w-4 h-4 text-emerald-600" />
+          <span>{lang === 'bn' ? 'পাসওয়ার্ড পরিবর্তন করুন (পুরানো পাসওয়ার্ড দিয়ে)' : 'Change Administrator Password'}</span>
+        </div>
+
+        {passSuccess && (
+          <div className="p-3 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 flex items-center gap-2 font-semibold">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span>{passSuccess}</span>
+          </div>
+        )}
+
+        {passError && (
+          <div className="p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 flex items-center gap-2 font-semibold">
+            <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+            <span>{passError}</span>
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div>
+            <label className="block font-semibold text-slate-700 mb-1">
+              {t('sec_current_password')} *
+            </label>
+            <input
+              type="password"
+              value={currentPassword}
+              onChange={(e) => setCurrentPassword(e.target.value)}
+              placeholder={lang === 'bn' ? 'পুরানো পাসওয়ার্ড...' : 'Old password...'}
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs font-mono"
+            />
+          </div>
+          <div>
+            <label className="block font-semibold text-slate-700 mb-1">
+              {t('sec_new_password')} *
+            </label>
+            <input
+              type="password"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              placeholder={lang === 'bn' ? 'নতুন পাসওয়ার্ড (কমপক্ষে ৪ অক্ষর)...' : 'New password (min 4 chars)...'}
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs font-mono"
+            />
+          </div>
+          <div>
+            <label className="block font-semibold text-slate-700 mb-1">
+              {t('sec_confirm_password')} *
+            </label>
+            <input
+              type="password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              placeholder={lang === 'bn' ? 'নতুন পাসওয়ার্ড আবার লিখুন...' : 'Confirm new password...'}
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs font-mono"
+            />
+          </div>
+        </div>
+
+        <div className="flex justify-end pt-1">
+          <button
+            type="submit"
+            disabled={isChangingPass}
+            className="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold shadow-xs cursor-pointer disabled:opacity-50"
+          >
+            {isChangingPass
+              ? (lang === 'bn' ? 'পরিবর্তন হচ্ছে...' : 'Updating...')
+              : (lang === 'bn' ? 'পাসওয়ার্ড পরিবর্তন করুন' : 'Update Password')}
           </button>
         </div>
       </form>

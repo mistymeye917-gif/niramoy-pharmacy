@@ -15,11 +15,13 @@ import {
 interface SecurityPageProps {
   lang: Language;
   settings: PharmacySettings;
+  recoveryKey?: string;
 }
 
 export const SecurityPage: React.FC<SecurityPageProps> = ({
   lang,
-  settings
+  settings,
+  recoveryKey
 }) => {
   const [currentPass, setCurrentPass] = useState('');
   const [newPass, setNewPass] = useState('');
@@ -63,8 +65,10 @@ export const SecurityPage: React.FC<SecurityPageProps> = ({
     }
   };
 
+  const activeRecoveryKey = recoveryKey || 'NIRAMOY-5EF82EC7-C2AB3078';
+
   const handleCopyRecovery = () => {
-    navigator.clipboard.writeText('NIRAMOY-8F92-4B10');
+    navigator.clipboard.writeText(activeRecoveryKey);
     setCopiedKey(true);
     setTimeout(() => setCopiedKey(false), 3000);
   };
@@ -167,7 +171,7 @@ export const SecurityPage: React.FC<SecurityPageProps> = ({
             </span>
             <div className="flex items-center justify-between gap-3">
               <span className="font-mono text-sm font-bold text-slate-900 tracking-wider">
-                NIRAMOY-8F92-4B10
+                {activeRecoveryKey}
               </span>
               <button
                 type="button"

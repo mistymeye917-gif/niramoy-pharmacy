@@ -1,6 +1,7 @@
 import express, { Request, Response } from 'express';
 import path from 'node:path';
 import fs from 'node:fs';
+import zlib from 'node:zlib';
 import { createServer as createViteServer } from 'vite';
 import { initDatabase, getDb, hashPassword, verifyPassword } from './src/db/database.ts';
 import * as services from './src/db/services.ts';
@@ -47,7 +48,7 @@ app.post('/api/auth/login', (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Password required' });
     }
     const db = getDb();
-    const user = db.prepare('SELECT * FROM users WHERE username = "admin"').get() as any;
+    const user = db.prepare("SELECT * FROM users WHERE username = 'admin'").get() as any;
     if (!user) {
       return res.status(404).json({ error: 'Admin user not found' });
     }
@@ -71,7 +72,7 @@ app.post('/api/auth/change-password', (req: Request, res: Response) => {
   try {
     const { currentPassword, newPassword } = req.body;
     const db = getDb();
-    const user = db.prepare('SELECT * FROM users WHERE username = "admin"').get() as any;
+    const user = db.prepare("SELECT * FROM users WHERE username = 'admin'").get() as any;
     if (!user) return res.status(404).json({ error: 'User not found' });
 
     if (!verifyPassword(currentPassword, user.password_hash, user.salt)) {
@@ -83,7 +84,7 @@ app.post('/api/auth/change-password', (req: Request, res: Response) => {
     }
 
     const { hash, salt } = hashPassword(newPassword);
-    db.prepare('UPDATE users SET password_hash = ?, salt = ? WHERE username = "admin"').run(hash, salt);
+    db.prepare("UPDATE users SET password_hash = ?, salt = ? WHERE username = 'admin'").run(hash, salt);
 
     res.json({ success: true, message: 'Password updated successfully' });
   } catch (err: any) {
@@ -95,15 +96,19 @@ app.post('/api/auth/recover-password', (req: Request, res: Response) => {
   try {
     const { recoveryKey, newPassword } = req.body;
     const db = getDb();
-    const user = db.prepare('SELECT * FROM users WHERE username = "admin"').get() as any;
+    const user = db.prepare("SELECT * FROM users WHERE username = 'admin'").get() as any;
     if (!user) return res.status(404).json({ error: 'User not found' });
 
-    if (recoveryKey.trim().toUpperCase() !== user.recovery_key_display.toUpperCase()) {
+    if (!recoveryKey || recoveryKey.trim().toUpperCase() !== user.recovery_key_display.toUpperCase()) {
       return res.status(401).json({ error: 'Invalid master recovery key' });
     }
 
+    if (!newPassword || newPassword.length < 4) {
+      return res.status(400).json({ error: 'New password must be at least 4 characters long' });
+    }
+
     const { hash, salt } = hashPassword(newPassword);
-    db.prepare('UPDATE users SET password_hash = ?, salt = ? WHERE username = "admin"').run(hash, salt);
+    db.prepare("UPDATE users SET password_hash = ?, salt = ? WHERE username = 'admin'").run(hash, salt);
 
     res.json({ success: true, message: 'Admin password reset successfully via master recovery key' });
   } catch (err: any) {
@@ -440,17 +445,112 @@ app.post('/api/backups/restore', (req: Request, res: Response) => {
   }
 });
 
-// Full Project Source ZIP Export Endpoint
+app.post('/api/database/reset', (req: Request, res: Response) => {
+  try {
+    const { mode, adminPassword } = req.body;
+    const result = services.resetDatabase(mode, adminPassword);
+    res.json({
+      success: true,
+      mode: result.mode,
+      safetyBackup: result.safetyBackup,
+      message: `Database reset (${result.mode}) completed after creating safety backup.`
+    });
+  } catch (err: any) {
+    const status = err.message?.includes('password') ? 401 : 400;
+    res.status(status).json({ error: err.message });
+  }
+});
+
+// Full Project Source ZIP Export Endpoint (Pure ESM Node.js ZIP builder)
+function collectSourceFiles(baseDir: string, currentDir: string, out: string[] = []): string[] {
+  const excludedTopDirs = new Set(['node_modules', 'dist', 'dist-electron', 'release', '.git', 'dev-dist']);
+  for (const entry of fs.readdirSync(currentDir, { withFileTypes: true })) {
+    const fullPath = path.join(currentDir, entry.name);
+    const relPosix = path.relative(baseDir, fullPath).split(path.sep).join('/');
+    if (entry.isDirectory()) {
+      if (excludedTopDirs.has(entry.name) || relPosix === 'public/assets/aistudio') continue;
+      collectSourceFiles(baseDir, fullPath, out);
+    } else if (entry.isFile()) {
+      if (entry.name.endsWith('.zip') || entry.name.endsWith('.db-wal') || entry.name.endsWith('.db-shm')) continue;
+      out.push(fullPath);
+    }
+  }
+  return out;
+}
+
+function buildZipBuffer(rootDir: string, files: string[]): Buffer {
+  const localParts: Buffer[] = [];
+  const centralParts: Buffer[] = [];
+  let offset = 0;
+
+  for (const filePath of files) {
+    const relName = path.relative(rootDir, filePath).split(path.sep).join('/');
+    const nameBuf = Buffer.from(relName, 'utf8');
+    const rawData = fs.readFileSync(filePath);
+    const crc = (zlib.crc32(rawData) >>> 0);
+    const compressed = zlib.deflateRawSync(rawData);
+
+    const localHeader = Buffer.alloc(30);
+    localHeader.writeUInt32LE(0x04034b50, 0); // Local file header signature
+    localHeader.writeUInt16LE(20, 4);         // Version needed to extract
+    localHeader.writeUInt16LE(0x0800, 6);     // General purpose bit flag (UTF-8)
+    localHeader.writeUInt16LE(8, 8);          // Compression method: deflate
+    localHeader.writeUInt16LE(0, 10);         // Mod time
+    localHeader.writeUInt16LE(0x5421, 12);    // Mod date
+    localHeader.writeUInt32LE(crc, 14);       // CRC-32
+    localHeader.writeUInt32LE(compressed.length, 18); // Compressed size
+    localHeader.writeUInt32LE(rawData.length, 22);    // Uncompressed size
+    localHeader.writeUInt16LE(nameBuf.length, 26);    // File name length
+    localHeader.writeUInt16LE(0, 28);         // Extra field length
+
+    localParts.push(localHeader, nameBuf, compressed);
+
+    const centralHeader = Buffer.alloc(46);
+    centralHeader.writeUInt32LE(0x02014b50, 0); // Central file header signature
+    centralHeader.writeUInt16LE(20, 4);         // Version made by
+    centralHeader.writeUInt16LE(20, 6);         // Version needed
+    centralHeader.writeUInt16LE(0x0800, 8);     // UTF-8 flag
+    centralHeader.writeUInt16LE(8, 10);         // Deflate
+    centralHeader.writeUInt16LE(0, 12);         // Mod time
+    centralHeader.writeUInt16LE(0x5421, 14);    // Mod date
+    centralHeader.writeUInt32LE(crc, 16);       // CRC-32
+    centralHeader.writeUInt32LE(compressed.length, 20);
+    centralHeader.writeUInt32LE(rawData.length, 24);
+    centralHeader.writeUInt16LE(nameBuf.length, 28);
+    centralHeader.writeUInt16LE(0, 30);         // Extra length
+    centralHeader.writeUInt16LE(0, 32);         // Comment length
+    centralHeader.writeUInt16LE(0, 34);         // Disk number
+    centralHeader.writeUInt16LE(0, 36);         // Internal attrs
+    centralHeader.writeUInt32LE(0, 38);         // External attrs
+    centralHeader.writeUInt32LE(offset, 42);    // Relative offset of local header
+
+    centralParts.push(centralHeader, nameBuf);
+    offset += localHeader.length + nameBuf.length + compressed.length;
+  }
+
+  const centralDir = Buffer.concat(centralParts);
+  const eocd = Buffer.alloc(22);
+  eocd.writeUInt32LE(0x06054b50, 0);            // End of central dir signature
+  eocd.writeUInt16LE(0, 4);                     // Disk number
+  eocd.writeUInt16LE(0, 6);                     // Start disk
+  eocd.writeUInt16LE(files.length, 8);          // Entries on disk
+  eocd.writeUInt16LE(files.length, 10);         // Total entries
+  eocd.writeUInt32LE(centralDir.length, 12);    // Size of central directory
+  eocd.writeUInt32LE(offset, 16);               // Offset of central directory
+  eocd.writeUInt16LE(0, 20);                    // Comment length
+
+  return Buffer.concat([...localParts, centralDir, eocd]);
+}
+
 app.get('/api/export/download-project-zip', (req: Request, res: Response) => {
   try {
-    const zipPath = path.resolve(process.cwd(), 'niramoy-pharmacy-source.zip');
-    if (!fs.existsSync(zipPath)) {
-      const { execSync } = require('node:child_process');
-      execSync('python3 -c "import os, zipfile; zip_filename=\'niramoy-pharmacy-source.zip\'; exclude_dirs={\'node_modules\', \'dist\', \'dist-electron\', \'release\', \'.git\'}; z=zipfile.ZipFile(zip_filename, \'w\', zipfile.ZIP_DEFLATED); [z.write(os.path.join(root, file), os.path.relpath(os.path.join(root, file), \'.\')) for root, dirs, files in os.walk(\'.\') for file in files if not any(x in root for x in exclude_dirs) and file != zip_filename]; z.close()"');
-    }
+    const rootDir = process.cwd();
+    const files = collectSourceFiles(rootDir, rootDir);
+    const zipBuffer = buildZipBuffer(rootDir, files);
     res.setHeader('Content-Type', 'application/zip');
     res.setHeader('Content-Disposition', 'attachment; filename="niramoy-pharmacy-complete-source.zip"');
-    res.sendFile(zipPath);
+    res.setHeader('Content-Length', String(zipBuffer.length));
+    res.send(zipBuffer);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

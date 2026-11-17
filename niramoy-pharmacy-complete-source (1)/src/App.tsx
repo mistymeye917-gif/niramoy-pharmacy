@@ -25,7 +25,8 @@ export default function App() {
   const [currentTab, setCurrentTab] = useState<string>('dashboard');
   const [settings, setSettings] = useState<PharmacySettings | null>(null);
   const [lang, setLang] = useState<Language>('bn');
-  const [isLocked, setIsLocked] = useState<boolean>(false);
+  const [isLocked, setIsLocked] = useState<boolean>(true);
+  const [recoveryKey, setRecoveryKey] = useState<string>('');
   const [previewInvoice, setPreviewInvoice] = useState<SaleInvoice | null>(null);
 
   const inactivityTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -58,9 +59,11 @@ export default function App() {
 
   useEffect(() => {
     const handleActivity = () => resetInactivityTimer();
+    const handlePageHide = () => setIsLocked(true);
     window.addEventListener('mousemove', handleActivity);
     window.addEventListener('keydown', handleActivity);
     window.addEventListener('click', handleActivity);
+    window.addEventListener('pagehide', handlePageHide);
     resetInactivityTimer();
 
     return () => {
@@ -68,6 +71,7 @@ export default function App() {
       window.removeEventListener('mousemove', handleActivity);
       window.removeEventListener('keydown', handleActivity);
       window.removeEventListener('click', handleActivity);
+      window.removeEventListener('pagehide', handlePageHide);
     };
   }, [settings?.inactivity_lock_minutes]);
 
@@ -288,15 +292,20 @@ export default function App() {
             <SecurityPage
               lang={lang}
               settings={settings}
+              recoveryKey={recoveryKey}
             />
           )}
         </main>
       </div>
 
-      {/* Security Inactivity / Manual Lock Modal */}
+      {/* Security Launch, Exit & Inactivity Lock Modal */}
       <LockScreenModal
         isLocked={isLocked}
-        onUnlock={() => setIsLocked(false)}
+        onUnlock={(key) => {
+          if (key) setRecoveryKey(key);
+          setIsLocked(false);
+          resetInactivityTimer();
+        }}
         lang={lang}
       />
 

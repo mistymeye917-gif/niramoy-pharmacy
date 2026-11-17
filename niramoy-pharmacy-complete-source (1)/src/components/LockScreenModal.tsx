@@ -6,7 +6,7 @@ import { Lock, Shield, KeyRound, AlertCircle, CheckCircle2 } from 'lucide-react'
 
 interface LockScreenModalProps {
   isLocked: boolean;
-  onUnlock: () => void;
+  onUnlock: (recoveryKey?: string) => void;
   lang: Language;
 }
 
@@ -30,18 +30,18 @@ export const LockScreenModal: React.FC<LockScreenModalProps> = ({
   const handleUnlock = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!password) {
-      setError('Please enter administrator password.');
+      setError(lang === 'bn' ? 'দয়া করে অ্যাডমিন পাসওয়ার্ড লিখুন।' : 'Please enter administrator password.');
       return;
     }
     setError('');
     setIsLoading(true);
     try {
-      await api.login(password);
+      const res = await api.login(password);
       setPassword('');
       setError('');
-      onUnlock();
+      onUnlock(res.recovery_key);
     } catch (err: any) {
-      setError(err.message || 'Invalid administrator password');
+      setError(err.message || (lang === 'bn' ? 'পাসওয়ার্ডটি সঠিক নয়।' : 'Invalid administrator password'));
     } finally {
       setIsLoading(false);
     }
@@ -50,25 +50,31 @@ export const LockScreenModal: React.FC<LockScreenModalProps> = ({
   const handleRecovery = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!recoveryKey.trim() || !newPassword.trim()) {
-      setError('Both recovery key and new password are required.');
+      setError(lang === 'bn' ? 'রিকভারি কি এবং নতুন পাসওয়ার্ড উভয়ই প্রয়োজন।' : 'Both recovery key and new password are required.');
       return;
     }
     setError('');
     setIsLoading(true);
     try {
       const res = await api.recoverPassword(recoveryKey.trim(), newPassword);
-      setRecoverySuccess(res.message);
+      setRecoverySuccess(
+        lang === 'bn'
+          ? 'পাসওয়ার্ড রিসেট হয়েছে! এখন নতুন পাসওয়ার্ড দিয়ে প্রবেশ করুন।'
+          : res.message
+      );
       setShowRecovery(false);
       setPassword(newPassword);
+      setRecoveryKey('');
+      setNewPassword('');
     } catch (err: any) {
-      setError(err.message || 'Recovery key is invalid');
+      setError(err.message || (lang === 'bn' ? 'রিকভারি কি সঠিক নয়।' : 'Recovery key is invalid'));
     } finally {
       setIsLoading(false);
     }
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-50 bg-slate-950 flex items-center justify-center p-4">
       <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl border border-slate-100 overflow-hidden">
         {/* Top Header Banner */}
         <div className="bg-slate-900 px-6 py-6 text-center text-white">
@@ -76,12 +82,14 @@ export const LockScreenModal: React.FC<LockScreenModalProps> = ({
             <Lock className="w-6 h-6" />
           </div>
           <h2 className="text-lg font-bold tracking-tight">
-            {showRecovery ? 'Master Password Recovery' : t('sec_unlock')}
+            {showRecovery
+              ? (lang === 'bn' ? 'মাস্টার পাসওয়ার্ড রিকভারি' : 'Master Password Recovery')
+              : t('sec_login_title')}
           </h2>
           <p className="text-xs text-slate-400 mt-1">
             {showRecovery
-              ? 'Enter your offline master recovery key to set a new password.'
-              : 'Session locked for security. Enter administrator password.'}
+              ? (lang === 'bn' ? 'নতুন পাসওয়ার্ড সেট করতে আপনার অফলাইন রিকভারি কি দিন।' : 'Enter your offline master recovery key to set a new password.')
+              : t('sec_unlock')}
           </p>
         </div>
 
@@ -113,7 +121,7 @@ export const LockScreenModal: React.FC<LockScreenModalProps> = ({
                     autoFocus
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    placeholder="Enter password..."
+                    placeholder={lang === 'bn' ? 'পাসওয়ার্ড লিখুন...' : 'Enter password...'}
                     className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 text-sm focus:outline-hidden focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 transition-all font-mono"
                   />
                   <Shield className="w-4 h-4 text-slate-400 absolute right-3.5 top-3" />
@@ -138,7 +146,11 @@ export const LockScreenModal: React.FC<LockScreenModalProps> = ({
                   className="text-xs text-slate-500 hover:text-emerald-600 transition-colors inline-flex items-center gap-1 cursor-pointer"
                 >
                   <KeyRound className="w-3.5 h-3.5" />
-                  <span>Forgot password? Use offline recovery key</span>
+                  <span>
+                    {lang === 'bn'
+                      ? 'পাসওয়ার্ড ভুলে গেছেন? রিকভারি কি ব্যবহার করুন'
+                      : 'Forgot password? Use offline recovery key'}
+                  </span>
                 </button>
               </div>
             </form>
@@ -146,7 +158,7 @@ export const LockScreenModal: React.FC<LockScreenModalProps> = ({
             <form onSubmit={handleRecovery} className="space-y-4">
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Master Recovery Key
+                  {t('sec_recovery_key')}
                 </label>
                 <input
                   type="text"
@@ -159,13 +171,13 @@ export const LockScreenModal: React.FC<LockScreenModalProps> = ({
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  New Password
+                  {t('sec_new_password')}
                 </label>
                 <input
                   type="password"
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
-                  placeholder="Enter new password (min 4 characters)"
+                  placeholder={lang === 'bn' ? 'নতুন পাসওয়ার্ড (কমপক্ষে ৪ অক্ষর)' : 'Enter new password (min 4 characters)'}
                   className="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs focus:ring-2 focus:ring-emerald-500 focus:outline-hidden"
                 />
               </div>
@@ -184,9 +196,9 @@ export const LockScreenModal: React.FC<LockScreenModalProps> = ({
                 <button
                   type="submit"
                   disabled={isLoading}
-                  className="flex-1 py-2 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-xs cursor-pointer"
+                  className="flex-1 py-2 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-xs cursor-pointer disabled:opacity-50"
                 >
-                  Reset Password
+                  {lang === 'bn' ? 'পাসওয়ার্ড রিসেট করুন' : 'Reset Password'}
                 </button>
               </div>
             </form>

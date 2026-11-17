@@ -2,7 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
-import { getDb, getCurrentDbPath, hashPassword } from './database.ts';
+import { getDb, getCurrentDbPath, hashPassword, verifyPassword, populateSeedData } from './database.ts';
 import {
   Medicine,
   InventoryBatch,
@@ -1320,6 +1320,101 @@ export function restoreBackup(backupFilePath: string, adminPassword: string): bo
   `).run(`Database restored from backup: ${backupFilePath}`, now);
 
   return true;
+}
+
+export function resetDatabase(
+  mode: 'transactions' | 'demo' | 'full',
+  adminPassword: string
+): { safetyBackup: BackupItem; mode: string } {
+  const db = getDb();
+
+  if (!['transactions', 'demo', 'full'].includes(mode)) {
+    throw new Error('Invalid reset mode selected.');
+  }
+
+  // Validate admin password strictly
+  const user = db.prepare("SELECT * FROM users WHERE username = 'admin'").get() as any;
+  if (!user || !user.password_hash || !user.salt) {
+    throw new Error('Admin account not found.');
+  }
+  if (!adminPassword || !verifyPassword(adminPassword, user.password_hash, user.salt)) {
+    throw new Error('Incorrect administrator password.');
+  }
+
+  // Always create a safety backup BEFORE wiping any data
+  const safetyBackup = createBackup('local', 'safety');
+
+  db.exec('BEGIN IMMEDIATE;');
+  try {
+    // Clear transactional & ledger tables in strict foreign-key-safe order
+    db.exec(`
+      DELETE FROM sales_batch_allocations;
+      DELETE FROM sales_payments;
+      DELETE FROM return_lines;
+      DELETE FROM returns;
+      DELETE FROM sales_lines;
+      DELETE FROM customer_payments;
+      DELETE FROM supplier_payments;
+      DELETE FROM sales_invoices;
+      DELETE FROM purchase_lines;
+      DELETE FROM purchase_invoices;
+      DELETE FROM stock_adjustments;
+      DELETE FROM expenses;
+      DELETE FROM cash_movements;
+      DELETE FROM inventory_batches;
+    `);
+
+    if (mode === 'transactions') {
+      // Keep medicines, unit_conversions, suppliers, customers, settings, users
+      db.exec('UPDATE customers SET balance = 0.0;');
+    } else if (mode === 'full') {
+      // Clear master catalogs as well for a 100% empty fresh start
+      db.exec(`
+        DELETE FROM unit_conversions;
+        DELETE FROM medicines;
+        DELETE FROM customers;
+        DELETE FROM suppliers;
+        DELETE FROM sqlite_sequence WHERE name IN (
+          'medicines', 'unit_conversions', 'suppliers', 'customers',
+          'inventory_batches', 'purchase_invoices', 'purchase_lines',
+          'sales_invoices', 'sales_lines', 'sales_batch_allocations',
+          'sales_payments', 'customer_payments', 'supplier_payments',
+          'expenses', 'returns', 'return_lines', 'stock_adjustments', 'cash_movements'
+        );
+      `);
+      db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('skip_demo_seed', 'true')").run();
+    } else if (mode === 'demo') {
+      // Clear master catalogs and re-seed clean Bangladesh pharmaceutical catalog
+      db.exec(`
+        DELETE FROM unit_conversions;
+        DELETE FROM medicines;
+        DELETE FROM customers;
+        DELETE FROM suppliers;
+        DELETE FROM sqlite_sequence WHERE name IN (
+          'medicines', 'unit_conversions', 'suppliers', 'customers',
+          'inventory_batches', 'purchase_invoices', 'purchase_lines',
+          'sales_invoices', 'sales_lines', 'sales_batch_allocations',
+          'sales_payments', 'customer_payments', 'supplier_payments',
+          'expenses', 'returns', 'return_lines', 'stock_adjustments', 'cash_movements'
+        );
+      `);
+      db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('skip_demo_seed', 'false')").run();
+      populateSeedData(db);
+    }
+
+    const now = new Date().toISOString();
+    db.prepare(`
+      INSERT INTO audit_logs (user_action, entity_type, entity_id, details, timestamp)
+      VALUES ('DB_RESET', 'DATABASE', '0', ?, ?)
+    `).run(`Database reset executed (mode: ${mode}). Safety backup: ${safetyBackup.filename}`, now);
+
+    db.exec('COMMIT;');
+  } catch (err) {
+    db.exec('ROLLBACK;');
+    throw err;
+  }
+
+  return { safetyBackup, mode };
 }
 
 // ----------------------------------------------------

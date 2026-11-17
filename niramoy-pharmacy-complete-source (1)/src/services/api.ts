@@ -268,6 +268,17 @@ export const api = {
     });
     return handleResponse(res);
   },
+  async resetDatabase(
+    mode: 'transactions' | 'demo' | 'full',
+    adminPassword: string
+  ): Promise<{ success: boolean; mode: string; safetyBackup: BackupItem; message: string }> {
+    const res = await fetch(`${API_BASE}/database/reset`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode, adminPassword })
+    });
+    return handleResponse(res);
+  },
 
   // Diagnostics & Tests
   async runDiagnostics(): Promise<any> {

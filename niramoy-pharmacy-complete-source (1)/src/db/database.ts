@@ -389,7 +389,10 @@ export function getCurrentDbPath(): string {
   return currentDbPath;
 }
 
-function populateSeedData(db: DatabaseSync) {
+export function populateSeedData(db: DatabaseSync) {
+  const skipSeed = db.prepare("SELECT value FROM settings WHERE key = 'skip_demo_seed'").get() as { value: string } | undefined;
+  if (skipSeed?.value === 'true') return;
+
   const countStmt = db.prepare('SELECT COUNT(*) as count FROM medicines');
   const medCount = (countStmt.get() as { count: number }).count;
   if (medCount > 0) return;

@@ -18,7 +18,9 @@ import {
   Lock,
   X,
   FolderDown,
-  Download
+  Download,
+  Trash2,
+  RefreshCw
 } from 'lucide-react';
 
 interface BackupsPageProps {
@@ -80,6 +82,15 @@ export const BackupsPage: React.FC<BackupsPageProps> = ({
   const [restoreStep, setRestoreStep] = useState<1 | 2 | 3>(1);
   const [isRestoring, setIsRestoring] = useState(false);
   const [restoreError, setRestoreError] = useState('');
+
+  // Database Reset Wizard State
+  const [showResetModal, setShowResetModal] = useState(false);
+  const [resetMode, setResetMode] = useState<'transactions' | 'full' | 'demo'>('transactions');
+  const [resetPassword, setResetPassword] = useState('');
+  const [resetStep, setResetStep] = useState<1 | 2>(1);
+  const [isResetting, setIsResetting] = useState(false);
+  const [resetError, setResetError] = useState('');
+  const [resetSafetyFile, setResetSafetyFile] = useState('');
 
   const t = (key: any) => getTranslation(lang, key);
 
@@ -144,6 +155,35 @@ export const BackupsPage: React.FC<BackupsPageProps> = ({
       setRestoreError(err.message || 'Database restoration failed');
     } finally {
       setIsRestoring(false);
+    }
+  };
+
+  const handleOpenResetModal = (mode: 'transactions' | 'full' | 'demo' = 'transactions') => {
+    setResetMode(mode);
+    setResetPassword('');
+    setResetError('');
+    setResetStep(1);
+    setResetSafetyFile('');
+    setShowResetModal(true);
+  };
+
+  const handleConfirmReset = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!resetPassword) {
+      setResetError(lang === 'bn' ? 'রিসেট করতে অ্যাডমিন পাসওয়ার্ড দিন।' : 'Administrator password is required.');
+      return;
+    }
+    setResetError('');
+    setIsResetting(true);
+    try {
+      const res = await api.resetDatabase(resetMode, resetPassword);
+      setResetSafetyFile(res.safetyBackup?.filename || '');
+      setResetStep(2);
+      loadBackups();
+    } catch (err: any) {
+      setResetError(err.message || (lang === 'bn' ? 'রিসেট ব্যর্থ হয়েছে' : 'Database reset failed'));
+    } finally {
+      setIsResetting(false);
     }
   };
 
@@ -344,6 +384,43 @@ export const BackupsPage: React.FC<BackupsPageProps> = ({
         </table>
       </div>
 
+      {/* Data Reset & Fresh Start Zone */}
+      <div className="bg-white rounded-xl border border-rose-200 shadow-xs p-5 space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2 text-sm font-bold text-rose-700">
+              <RefreshCw className="w-4 h-4" />
+              <span>
+                {lang === 'bn'
+                  ? 'ডেটা রিসেট ও নতুন করে শুরু করুন (Factory Reset)'
+                  : 'Data Reset & Fresh Start (Factory Reset)'}
+              </span>
+            </div>
+            <p className="text-xs text-slate-500 max-w-2xl">
+              {lang === 'bn'
+                ? 'দোকানের আসল হিসাব শুরু করার আগে টেস্ট বেচাকেনা ও স্টক মুছে ফেলতে পারেন। রিসেটের আগে স্বয়ংক্রিয়ভাবে একটি সেফটি ব্যাকআপ সেভ থাকবে।'
+                : 'Clear test transactions or wipe all data to start fresh before real pharmacy operations. An automatic safety backup is created first.'}
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            <button
+              onClick={() => handleOpenResetModal('transactions')}
+              className="px-3.5 py-2 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 rounded-lg text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition-colors"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span>{lang === 'bn' ? 'শুধু লেনদেন ও স্টক রিসেট' : 'Clear Transactions Only'}</span>
+            </button>
+            <button
+              onClick={() => handleOpenResetModal('full')}
+              className="px-3.5 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 cursor-pointer shadow-xs transition-colors"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>{lang === 'bn' ? 'সম্পূর্ণ ফ্যাক্টরি রিসেট' : 'Full Factory Reset'}</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
       {/* Restore Wizard Modal */}
       {showRestoreModal && selectedBackup && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
@@ -452,6 +529,180 @@ export const BackupsPage: React.FC<BackupsPageProps> = ({
                       className="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white font-semibold rounded-lg cursor-pointer"
                     >
                       Reload Application Data
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Database Reset Wizard Modal */}
+      {showResetModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="w-full max-w-lg bg-white rounded-xl shadow-2xl border border-slate-200 overflow-hidden text-xs">
+            <div className="px-5 py-3.5 bg-rose-50 border-b border-rose-200 flex items-center justify-between">
+              <h3 className="text-sm font-bold text-rose-800 flex items-center gap-2">
+                <RefreshCw className="w-4 h-4 text-rose-600" />
+                <span>
+                  {lang === 'bn' ? 'ডেটাবেস রিসেট করুন (নতুন করে শুরু)' : 'Reset Database & Start Fresh'}
+                </span>
+              </h3>
+              <button onClick={() => setShowResetModal(false)} className="text-slate-400 hover:text-slate-700 cursor-pointer">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              {resetStep === 1 && (
+                <form onSubmit={handleConfirmReset} className="space-y-4">
+                  <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 flex items-start gap-2.5">
+                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                    <div className="text-[11px] leading-relaxed">
+                      {lang === 'bn'
+                        ? 'সতর্কতা: রিসেট করলে নির্বাচিত ডেটা স্থায়ীভাবে মুছে যাবে। তবে নিরাপত্তার জন্য রিসেটের আগে স্বয়ংক্রিয়ভাবে একটি ব্যাকআপ তৈরি করে রাখা হবে।'
+                        : 'Warning: Resetting will clear the selected records. An automatic safety backup will be created first so you can restore anytime.'}
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="block font-bold text-slate-700">
+                      {lang === 'bn' ? 'রিসেটের ধরন বেছে নিন:' : 'Select Reset Option:'}
+                    </label>
+
+                    <label className={`flex items-start gap-2.5 p-3 rounded-lg border cursor-pointer transition-colors ${
+                      resetMode === 'transactions' ? 'border-amber-500 bg-amber-50/50' : 'border-slate-200 hover:bg-slate-50'
+                    }`}>
+                      <input
+                        type="radio"
+                        name="resetMode"
+                        checked={resetMode === 'transactions'}
+                        onChange={() => setResetMode('transactions')}
+                        className="mt-0.5"
+                      />
+                      <div>
+                        <div className="font-bold text-slate-900">
+                          {lang === 'bn' ? '১. শুধু লেনদেন, হিসাব ও স্টক মুছুন' : '1. Clear Transactions & Stock Only'}
+                        </div>
+                        <div className="text-[11px] text-slate-500 mt-0.5">
+                          {lang === 'bn'
+                            ? 'বিক্রি, ক্রয়, রিটার্ন, খরচ, ক্যাশ ও স্টক শূন্য হবে। কিন্তু ওষুধের নাম, কাস্টমার, সাপ্লায়ার ও দোকানের সেটিংস অক্ষত থাকবে।'
+                            : 'Clears all sales, purchases, batches, expenses, and dues. Keeps your medicine catalog, customers, suppliers, and settings.'}
+                        </div>
+                      </div>
+                    </label>
+
+                    <label className={`flex items-start gap-2.5 p-3 rounded-lg border cursor-pointer transition-colors ${
+                      resetMode === 'demo' ? 'border-emerald-500 bg-emerald-50/50' : 'border-slate-200 hover:bg-slate-50'
+                    }`}>
+                      <input
+                        type="radio"
+                        name="resetMode"
+                        checked={resetMode === 'demo'}
+                        onChange={() => setResetMode('demo')}
+                        className="mt-0.5"
+                      />
+                      <div>
+                        <div className="font-bold text-slate-900">
+                          {lang === 'bn' ? '২. ডেমো ডেটায় রিসেট করুন (নতুন ক্যাটালগসহ)' : '2. Reset to Clean Demo Catalog'}
+                        </div>
+                        <div className="text-[11px] text-slate-500 mt-0.5">
+                          {lang === 'bn'
+                            ? 'সব টেস্ট ডেটা মুছে বাংলাদেশের সাধারণ ওষুধের মূল ক্যাটালগ নতুন করে লোড করবে।'
+                            : 'Wipes all test data and restores the clean starter Bangladesh pharmaceutical catalog.'}
+                        </div>
+                      </div>
+                    </label>
+
+                    <label className={`flex items-start gap-2.5 p-3 rounded-lg border cursor-pointer transition-colors ${
+                      resetMode === 'full' ? 'border-rose-500 bg-rose-50/60' : 'border-slate-200 hover:bg-slate-50'
+                    }`}>
+                      <input
+                        type="radio"
+                        name="resetMode"
+                        checked={resetMode === 'full'}
+                        onChange={() => setResetMode('full')}
+                        className="mt-0.5"
+                      />
+                      <div>
+                        <div className="font-bold text-rose-800">
+                          {lang === 'bn' ? '৩. সম্পূর্ণ ফ্যাক্টরি রিসেট (একদম খালি)' : '3. Full Factory Reset (Completely Empty)'}
+                        </div>
+                        <div className="text-[11px] text-slate-500 mt-0.5">
+                          {lang === 'bn'
+                            ? 'ওষুধ, স্টক, কাস্টমার, সাপ্লায়ার ও সব হিসাব সম্পূর্ণ মুছে শূন্য থেকে শুরু করবে (শুধু পাসওয়ার্ড ও সেটিংস থাকবে)।'
+                            : 'Wipes all medicines, batches, customers, suppliers, and transactions for a 100% blank start (keeps login & settings).'}
+                        </div>
+                      </div>
+                    </label>
+                  </div>
+
+                  {resetError && (
+                    <div className="p-3 bg-rose-50 border border-rose-200 rounded-lg text-rose-800 font-semibold">
+                      {resetError}
+                    </div>
+                  )}
+
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">
+                      {lang === 'bn' ? 'নিশ্চিত করতে অ্যাডমিন পাসওয়ার্ড লিখুন *' : 'Enter Administrator Password to Confirm *'}
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="password"
+                        value={resetPassword}
+                        onChange={(e) => setResetPassword(e.target.value)}
+                        placeholder={lang === 'bn' ? 'অ্যাডমিন পাসওয়ার্ড...' : 'Admin password...'}
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg font-mono focus:ring-2 focus:ring-rose-500 focus:outline-hidden"
+                      />
+                      <Lock className="w-4 h-4 text-slate-400 absolute right-3 top-2.5" />
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-end gap-2.5 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowResetModal(false)}
+                      className="px-3.5 py-2 border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-50 font-semibold cursor-pointer"
+                    >
+                      {lang === 'bn' ? 'বাতিল' : 'Cancel'}
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={isResetting || !resetPassword}
+                      className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg font-semibold shadow-xs cursor-pointer disabled:opacity-50"
+                    >
+                      {isResetting
+                        ? (lang === 'bn' ? 'রিসেট হচ্ছে...' : 'Resetting...')
+                        : (lang === 'bn' ? 'রিসেট নিশ্চিত করুন' : 'Confirm & Reset Data')}
+                    </button>
+                  </div>
+                </form>
+              )}
+
+              {resetStep === 2 && (
+                <div className="text-center py-6 space-y-3">
+                  <div className="w-12 h-12 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto">
+                    <CheckCircle2 className="w-7 h-7" />
+                  </div>
+                  <h4 className="text-base font-bold text-slate-900">
+                    {lang === 'bn' ? 'ডেটাবেস সফলভাবে রিসেট হয়েছে!' : 'Database Reset Successfully!'}
+                  </h4>
+                  <p className="text-slate-500 text-xs max-w-sm mx-auto">
+                    {lang === 'bn'
+                      ? `নতুন করে শুরু করার জন্য সব ডেটা প্রস্তুত। পূর্বের তথ্যের একটি সেফটি ব্যাকআপ সংরক্ষিত হয়েছে${resetSafetyFile ? `: ${resetSafetyFile}` : ''}।`
+                      : `Your workspace is now reset and ready. A safety backup was preserved${resetSafetyFile ? `: ${resetSafetyFile}` : ''}.`}
+                  </p>
+                  <div className="pt-2">
+                    <button
+                      onClick={() => {
+                        setShowResetModal(false);
+                        window.location.reload();
+                      }}
+                      className="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white font-semibold rounded-lg cursor-pointer"
+                    >
+                      {lang === 'bn' ? 'অ্যাপ রিলোড করুন' : 'Reload Application'}
                     </button>
                   </div>
                 </div>
