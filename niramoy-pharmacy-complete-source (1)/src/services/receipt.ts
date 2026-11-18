@@ -83,8 +83,9 @@ export function generateReceiptHtml(
           .divider { border-top: 1px dashed #000; margin: 4px 0; }
           table { width: 100%; border-collapse: collapse; font-size: 10px; }
           th { text-align: left; border-bottom: 1px solid #000; padding: 2px 0; }
-          td { padding: 2px 0; }
-          .right { text-align: right; }
+          td { padding: 2px 0; vertical-align: top; }
+          tr { break-inside: avoid; page-break-inside: avoid; }
+          .right { text-align: right; white-space: nowrap; padding-left: 4px; }
         </style>
       </head>
       <body>
@@ -95,6 +96,11 @@ export function generateReceiptHtml(
           <div>${labels.invoice}: <span class="bold">${invoice.invoice_number}</span></div>
           <div>${formatDateTime(invoice.created_at || invoice.sale_date, language)}</div>
         </div>
+        ${invoice.customer_name && invoice.customer_name !== 'Walk-in Customer' ? `
+        <div class="divider"></div>
+        <div style="font-size: 10px;">
+          <div>${labels.customer}: <span class="bold">${invoice.customer_name}</span>${invoice.customer_phone ? ` (${invoice.customer_phone})` : ''}</div>
+        </div>` : ''}
         <div class="divider"></div>
         <table>
           <thead>
@@ -107,7 +113,7 @@ export function generateReceiptHtml(
           <tbody>
             ${(invoice.items || []).map(item => `
               <tr>
-                <td>${item.brand_name}</td>
+                <td style="word-break: break-word;">${item.brand_name}</td>
                 <td class="right">${item.quantity} ${item.unit}</td>
                 <td class="right">${formatBDT(item.line_total, false)}</td>
               </tr>

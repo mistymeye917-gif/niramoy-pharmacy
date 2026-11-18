@@ -12,6 +12,7 @@ import {
 import { getTranslation } from '../i18n/translations';
 import { api } from '../services/api';
 import { formatBDT } from '../services/formatters';
+import { compressImageFile } from '../utils/imageCompress';
 import {
   Search,
   Plus,
@@ -25,7 +26,10 @@ import {
   ShieldCheck,
   Printer,
   Sparkles,
-  ArrowRight
+  ArrowRight,
+  UserPlus,
+  Camera,
+  X
 } from 'lucide-react';
 
 interface PosBillingPageProps {
@@ -74,6 +78,20 @@ export const PosBillingPage: React.FC<PosBillingPageProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [successInvoice, setSuccessInvoice] = useState<SaleInvoice | null>(null);
+
+  // Quick Add New Customer Modal (keeps cart items intact)
+  const [showQuickCustModal, setShowQuickCustModal] = useState(false);
+  const [quickCust, setQuickCust] = useState({
+    name: '',
+    phone: '',
+    address: '',
+    nid_number: '',
+    photo_data: '',
+    nid_photo_data: '',
+    nid_back_photo_data: ''
+  });
+  const [quickCustError, setQuickCustError] = useState('');
+  const [isSavingQuickCust, setIsSavingQuickCust] = useState(false);
 
   const searchInputRef = useRef<HTMLInputElement>(null);
 
@@ -226,10 +244,15 @@ export const PosBillingPage: React.FC<PosBillingPageProps> = ({
         }];
       }
 
-      // Check if credit method was selected
-      const isCredit = primaryMethod === 'credit' || paymentsPayload.some(p => p.method === 'credit');
+      // Check if credit or partial cash payment will create a due balance
+      const isPartialCash = !splitPaymentMode && primaryMethod === 'cash' && tenderedAmount > 0 && tenderedAmount < finalPayable;
+      const isCredit = primaryMethod === 'credit' || isPartialCash || paymentsPayload.some(p => p.method === 'credit');
       if (isCredit && !selectedCustomerId) {
-        throw new Error('A customer must be selected from the Customer Ledger for credit sales.');
+        throw new Error(
+          lang === 'bn'
+            ? 'বাকি রাখতে হলে ডানদিকের উপরে "গ্রাহক নির্বাচন" থেকে গ্রাহক বেছে নিন অথবা "+ নতুন গ্রাহক" বাটনে ক্লিক করে এখনই যোগ করুন।'
+            : 'A customer must be selected (or added via "+ New Customer") for credit or partial sales.'
+        );
       }
 
       const res = await api.executeSale({
@@ -249,6 +272,7 @@ export const PosBillingPage: React.FC<PosBillingPageProps> = ({
       setSelectedCustomerId(null);
       setCustomerName('');
       setCustomerPhone('');
+      api.getCustomers().then(setCustomers).catch(console.error);
 
       // Open receipt automatically
       onOpenReceipt(res.invoice);
@@ -256,6 +280,68 @@ export const PosBillingPage: React.FC<PosBillingPageProps> = ({
       setErrorMessage(err.message || 'Failed to complete sale transaction');
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleQuickImageUpload = async (
+    e: React.ChangeEvent<HTMLInputElement>,
+    field: 'photo_data' | 'nid_photo_data' | 'nid_back_photo_data'
+  ) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setQuickCustError('');
+    try {
+      const compressed = await compressImageFile(file);
+      setQuickCust(prev => ({ ...prev, [field]: compressed }));
+    } catch (err: any) {
+      setQuickCustError(err.message || (lang === 'bn' ? 'ছবি আপলোড করা যায়নি।' : 'Failed to process image.'));
+    }
+    e.target.value = '';
+  };
+
+  const handleSaveQuickCustomer = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!quickCust.name.trim() || !quickCust.phone.trim()) {
+      setQuickCustError(
+        lang === 'bn'
+          ? 'গ্রাহকের নাম এবং মোবাইল নম্বর অবশ্যই দিতে হবে।'
+          : 'Customer name and phone number are required.'
+      );
+      return;
+    }
+    setIsSavingQuickCust(true);
+    setQuickCustError('');
+    try {
+      const res = await api.saveCustomer({
+        name: quickCust.name.trim(),
+        phone: quickCust.phone.trim(),
+        address: quickCust.address.trim(),
+        nid_number: quickCust.nid_number.trim(),
+        photo_data: quickCust.photo_data,
+        nid_photo_data: quickCust.nid_photo_data,
+        nid_back_photo_data: quickCust.nid_back_photo_data,
+        balance: 0
+      });
+      const updatedList = await api.getCustomers();
+      setCustomers(updatedList);
+      setSelectedCustomerId(res.id);
+      setCustomerName(quickCust.name.trim());
+      setCustomerPhone(quickCust.phone.trim());
+      setShowQuickCustModal(false);
+      setQuickCust({
+        name: '',
+        phone: '',
+        address: '',
+        nid_number: '',
+        photo_data: '',
+        nid_photo_data: '',
+        nid_back_photo_data: ''
+      });
+      setErrorMessage('');
+    } catch (err: any) {
+      setQuickCustError(err.message || 'Failed to save customer');
+    } finally {
+      setIsSavingQuickCust(false);
     }
   };
 
@@ -456,11 +542,24 @@ export const PosBillingPage: React.FC<PosBillingPageProps> = ({
 
       {/* Right Sidebar: Checkout, Customer Selection, Discounts & Payments (30% width) */}
       <div className="w-full lg:w-96 bg-white border-l border-slate-200 flex flex-col p-5 overflow-y-auto shadow-xs space-y-4">
-        {/* Customer Select */}
+        {/* Customer Select + Quick Add New Customer */}
         <div className="space-y-1.5">
-          <label className="block text-xs font-semibold text-slate-700">
-            {t('pos_select_customer')}
-          </label>
+          <div className="flex items-center justify-between gap-2">
+            <label className="block text-xs font-semibold text-slate-700">
+              {t('pos_select_customer')}
+            </label>
+            <button
+              type="button"
+              onClick={() => {
+                setQuickCustError('');
+                setShowQuickCustModal(true);
+              }}
+              className="px-2 py-0.5 rounded bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-[11px] font-semibold flex items-center gap-1 cursor-pointer shrink-0"
+            >
+              <UserPlus className="w-3 h-3" />
+              <span>{lang === 'bn' ? '+ নতুন গ্রাহক' : '+ New Customer'}</span>
+            </button>
+          </div>
           <select
             value={selectedCustomerId || ''}
             onChange={(e) => {
@@ -482,7 +581,7 @@ export const PosBillingPage: React.FC<PosBillingPageProps> = ({
             <option value="">{t('pos_walkin_customer')}</option>
             {customers.map((c) => (
               <option key={c.id} value={c.id}>
-                {c.name} ({c.phone}) {c.balance > 0 ? `· Due: ${formatBDT(c.balance)}` : ''}
+                {c.name} ({c.phone}) {c.balance > 0 ? `· ${lang === 'bn' ? 'বাকি' : 'Due'}: ${formatBDT(c.balance)}` : ''}
               </option>
             ))}
           </select>
@@ -565,7 +664,7 @@ export const PosBillingPage: React.FC<PosBillingPageProps> = ({
               {primaryMethod === 'cash' && (
                 <div>
                   <label className="block text-[11px] font-medium text-slate-600 mb-1">
-                    Cash Tendered
+                    {lang === 'bn' ? 'নগদ জমা (কম লিখলে বাকি হবে)' : 'Cash Tendered'}
                   </label>
                   <input
                     type="number"
@@ -577,6 +676,21 @@ export const PosBillingPage: React.FC<PosBillingPageProps> = ({
                     <div className="mt-1 text-xs text-emerald-700 font-semibold flex items-center justify-between">
                       <span>{t('pos_change_due')}:</span>
                       <span>{formatBDT(tenderedAmount - finalPayable)}</span>
+                    </div>
+                  )}
+                  {finalPayable > 0 && tenderedAmount > 0 && tenderedAmount < finalPayable && (
+                    <div className="mt-1.5 p-2 rounded-lg bg-amber-50 border border-amber-200 text-[11px] text-amber-900 space-y-1">
+                      <div className="flex items-center justify-between font-bold text-rose-700">
+                        <span>{lang === 'bn' ? 'বাকি থাকবে (ক্রেডিট):' : 'Remaining Due (Credit):'}</span>
+                        <span>{formatBDT(finalPayable - tenderedAmount)}</span>
+                      </div>
+                      {!selectedCustomerId && (
+                        <div className="text-[10px] text-amber-800">
+                          {lang === 'bn'
+                            ? 'বাকি রাখতে উপরে গ্রাহক সিলেক্ট করুন অথবা "+ নতুন গ্রাহক" চাপুন।'
+                            : 'Select a customer above or click "+ New Customer" to record due.'}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -641,6 +755,173 @@ export const PosBillingPage: React.FC<PosBillingPageProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Quick Add New Customer Modal (preserves active cart) */}
+      {showQuickCustModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="w-full max-w-2xl bg-white rounded-xl shadow-2xl border border-slate-200 overflow-hidden max-h-[92vh] flex flex-col">
+            <div className="px-5 py-3.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between shrink-0">
+              <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                <UserPlus className="w-4 h-4 text-emerald-600" />
+                <span>
+                  {lang === 'bn'
+                    ? 'নতুন বাকি গ্রাহক দ্রুত যোগ করুন (ওষুধের লিস্ট ঠিক থাকবে)'
+                    : 'Quick Add New Customer (Keeps Cart Intact)'}
+                </span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowQuickCustModal(false)}
+                className="text-slate-400 hover:text-slate-700 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveQuickCustomer} className="p-5 space-y-3.5 text-xs overflow-y-auto">
+              {quickCustError && (
+                <div className="p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 font-semibold flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                  <span>{quickCustError}</span>
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">
+                    {lang === 'bn' ? 'গ্রাহকের নাম *' : 'Customer Name *'}
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    autoFocus
+                    value={quickCust.name}
+                    onChange={(e) => setQuickCust({ ...quickCust, name: e.target.value })}
+                    placeholder={lang === 'bn' ? 'যেমন: রফিকুল ইসলাম' : 'e.g. Rafiqul Islam'}
+                    className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">
+                    {lang === 'bn' ? 'মোবাইল নম্বর *' : 'Phone Number *'}
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={quickCust.phone}
+                    onChange={(e) => setQuickCust({ ...quickCust, phone: e.target.value })}
+                    placeholder="017..."
+                    className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs font-mono"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">
+                    {lang === 'bn' ? 'NID নম্বর (ঐচ্ছিক)' : 'NID Number (Optional)'}
+                  </label>
+                  <input
+                    type="text"
+                    value={quickCust.nid_number}
+                    onChange={(e) => setQuickCust({ ...quickCust, nid_number: e.target.value })}
+                    placeholder={lang === 'bn' ? 'জাতীয় পরিচয়পত্র নম্বর' : '10 / 13 / 17 digit NID'}
+                    className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">
+                    {lang === 'bn' ? 'ঠিকানা (ঐচ্ছিক)' : 'Address (Optional)'}
+                  </label>
+                  <input
+                    type="text"
+                    value={quickCust.address}
+                    onChange={(e) => setQuickCust({ ...quickCust, address: e.target.value })}
+                    placeholder={lang === 'bn' ? 'বাড়ি / গ্রাম / এলাকা' : 'Area / Village'}
+                    className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs"
+                  />
+                </div>
+              </div>
+
+              {/* Optional Quick Photos (Customer + NID Front + NID Back) */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1">
+                <label className="p-2.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 cursor-pointer flex items-center gap-2">
+                  <Camera className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <div className="min-w-0">
+                    <div className="font-semibold text-slate-700 truncate">
+                      {quickCust.photo_data ? 'গ্রাহকের ছবি ✓' : (lang === 'bn' ? 'কাস্টমারের ছবি' : 'Customer Photo')}
+                    </div>
+                    <div className="text-[10px] text-slate-500">
+                      {quickCust.photo_data ? (lang === 'bn' ? 'যুক্ত হয়েছে' : 'Uploaded') : (lang === 'bn' ? 'ঐচ্ছিক' : 'Optional')}
+                    </div>
+                  </div>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => handleQuickImageUpload(e, 'photo_data')}
+                    className="hidden"
+                  />
+                </label>
+
+                <label className="p-2.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 cursor-pointer flex items-center gap-2">
+                  <CreditCard className="w-4 h-4 text-indigo-600 shrink-0" />
+                  <div className="min-w-0">
+                    <div className="font-semibold text-slate-700 truncate">
+                      {quickCust.nid_photo_data ? 'NID সামনের পাশ ✓' : (lang === 'bn' ? 'NID সামনের পাশ' : 'NID Front')}
+                    </div>
+                    <div className="text-[10px] text-slate-500">
+                      {quickCust.nid_photo_data ? (lang === 'bn' ? 'যুক্ত হয়েছে' : 'Uploaded') : (lang === 'bn' ? 'ঐচ্ছিক' : 'Optional')}
+                    </div>
+                  </div>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => handleQuickImageUpload(e, 'nid_photo_data')}
+                    className="hidden"
+                  />
+                </label>
+
+                <label className="p-2.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 cursor-pointer flex items-center gap-2">
+                  <CreditCard className="w-4 h-4 text-amber-600 shrink-0" />
+                  <div className="min-w-0">
+                    <div className="font-semibold text-slate-700 truncate">
+                      {quickCust.nid_back_photo_data ? 'NID পেছনের পাশ ✓' : (lang === 'bn' ? 'NID পেছনের পাশ' : 'NID Back')}
+                    </div>
+                    <div className="text-[10px] text-slate-500">
+                      {quickCust.nid_back_photo_data ? (lang === 'bn' ? 'যুক্ত হয়েছে' : 'Uploaded') : (lang === 'bn' ? 'ঐচ্ছিক' : 'Optional')}
+                    </div>
+                  </div>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => handleQuickImageUpload(e, 'nid_back_photo_data')}
+                    className="hidden"
+                  />
+                </label>
+              </div>
+
+              <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => setShowQuickCustModal(false)}
+                  className="px-3.5 py-1.5 border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-50 cursor-pointer"
+                >
+                  {t('cancel')}
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingQuickCust}
+                  className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-semibold shadow-xs cursor-pointer disabled:opacity-50"
+                >
+                  {isSavingQuickCust
+                    ? t('loading')
+                    : (lang === 'bn' ? 'সেভ ও বিলে যুক্ত করুন' : 'Save & Select Customer')}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
