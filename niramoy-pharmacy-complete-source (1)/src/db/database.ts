@@ -675,12 +675,18 @@ export function populateSeedData(db: DatabaseSync) {
   }
 
   // Pre-seed some initial expense records
+  const todayDhaka = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Dhaka',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).format(new Date());
   const insertExp = db.prepare(`
     INSERT INTO expenses (category, amount, expense_date, description, payee, payment_method, reference_no, created_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `);
-  insertExp.run('Utilities', 3200.00, new Date().toISOString().split('T')[0], 'Electricity bill (DESCO)', 'DESCO Dhaka', 'bkash', 'TXN-DESCO-992', now);
-  insertExp.run('Packaging & Bags', 850.00, new Date().toISOString().split('T')[0], 'Pharmacy medicine bags & envelopes', 'City Paper Store', 'cash', '', now);
+  insertExp.run('Utilities', 3200.00, todayDhaka, 'Electricity bill (DESCO)', 'DESCO Dhaka', 'bkash', 'TXN-DESCO-992', now);
+  insertExp.run('Packaging & Bags', 850.00, todayDhaka, 'Pharmacy medicine bags & envelopes', 'City Paper Store', 'cash', '', now);
 
   // Initial cash drawer float
   const insertCash = db.prepare(`
@@ -698,7 +704,13 @@ export function populateSeedData(db: DatabaseSync) {
 }
 
 function getFutureDate(daysAhead: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() + daysAhead);
-  return d.toISOString().split('T')[0];
+  const todayStr = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Dhaka',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).format(new Date());
+  const [y, m, d] = todayStr.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d + daysAhead));
+  return dt.toISOString().split('T')[0];
 }

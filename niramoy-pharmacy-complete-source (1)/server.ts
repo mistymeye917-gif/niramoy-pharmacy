@@ -185,6 +185,28 @@ app.post('/api/medicines', (req: Request, res: Response) => {
   }
 });
 
+app.delete('/api/medicines/:id', (req: Request, res: Response) => {
+  try {
+    const id = parseInt(String(req.params.id), 10);
+    if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'Invalid medicine ID.' });
+    services.deleteMedicine(id);
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.patch('/api/medicines/:id/active', (req: Request, res: Response) => {
+  try {
+    const id = parseInt(String(req.params.id), 10);
+    if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'Invalid medicine ID.' });
+    services.setMedicineActive(id, Boolean(req.body?.active));
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 // Excel Import for Medicines
 app.post('/api/medicines/import-excel', (req: Request, res: Response) => {
   try {
@@ -281,6 +303,28 @@ app.post('/api/batches', (req: Request, res: Response) => {
     res.json({ success: true, id });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/batches/:id', (req: Request, res: Response) => {
+  try {
+    const id = parseInt(String(req.params.id), 10);
+    if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'Invalid batch ID.' });
+    services.updateBatch(id, req.body);
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.delete('/api/batches/:id', (req: Request, res: Response) => {
+  try {
+    const id = parseInt(String(req.params.id), 10);
+    if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'Invalid batch ID.' });
+    services.deleteBatch(id);
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
   }
 });
 
@@ -428,6 +472,17 @@ app.post('/api/suppliers', (req: Request, res: Response) => {
   }
 });
 
+app.delete('/api/suppliers/:id', (req: Request, res: Response) => {
+  try {
+    const id = parseInt(String(req.params.id), 10);
+    if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'Invalid supplier ID.' });
+    services.deleteSupplier(id);
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 app.post('/api/suppliers/payments', (req: Request, res: Response) => {
   try {
     services.recordSupplierPayment(req.body);
@@ -454,6 +509,28 @@ app.post('/api/expenses', (req: Request, res: Response) => {
     res.json({ success: true, id });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/expenses/:id', (req: Request, res: Response) => {
+  try {
+    const id = parseInt(String(req.params.id), 10);
+    if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'Invalid expense ID.' });
+    services.updateExpense(id, req.body);
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.delete('/api/expenses/:id', (req: Request, res: Response) => {
+  try {
+    const id = parseInt(String(req.params.id), 10);
+    if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'Invalid expense ID.' });
+    services.deleteExpense(id);
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
   }
 });
 

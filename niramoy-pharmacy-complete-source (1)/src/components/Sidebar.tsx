@@ -13,7 +13,6 @@ import {
   BarChart3,
   HardDriveDownload,
   Settings,
-  ShieldAlert,
   TestTube2
 } from 'lucide-react';
 
@@ -95,18 +94,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
         })}
       </nav>
 
-      {/* Footer Info & Desktop App Version */}
-      <div className="p-3 border-t border-slate-800/80 bg-slate-950/40 text-[11px] text-slate-400 space-y-2">
-        <div className="flex items-center justify-between text-slate-400 px-1">
-          <span>Version</span>
-          <span className="font-mono text-slate-300">v1.0.0 (Win64)</span>
+      {/* Footer Info */}
+      <div className="p-3.5 border-t border-slate-800/80 bg-slate-950/40 text-[11px] text-slate-400">
+        <div className="font-medium text-slate-300 truncate">
+          {settings?.pharmacy_name || 'Niramoy Pharmacy'}
         </div>
-        <div className="p-2 rounded-md bg-slate-900 border border-slate-800 text-[10px] leading-relaxed text-slate-400">
-          <div className="flex items-center gap-1.5 text-emerald-400 font-medium mb-0.5">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
-            <span>Offline Ready</span>
-          </div>
-          <span>No internet or cloud server needed. All data stored locally in SQLite.</span>
+        <div className="text-[10px] text-slate-500 mt-0.5 leading-relaxed">
+          {lang === 'bn'
+            ? 'ক্লাউড অটো-সিঙ্ক ও নিরাপদ হিসাব ব্যবস্থাপনা'
+            : 'Cloud auto-sync & protected accounting'}
         </div>
       </div>
     </aside>

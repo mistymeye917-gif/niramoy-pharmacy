@@ -15,7 +15,10 @@ import {
   X,
   Upload,
   CheckCircle2,
-  FileText
+  AlertCircle,
+  Pencil,
+  Trash2,
+  Power
 } from 'lucide-react';
 
 interface MedicinesPageProps {
@@ -74,6 +77,14 @@ export const MedicinesPage: React.FC<MedicinesPageProps> = ({
   const [isImporting, setIsImporting] = useState(false);
   const [importSummary, setImportSummary] = useState<string>('');
 
+  // Inline feedback & confirmation modals
+  const [notice, setNotice] = useState('');
+  const [errorMsg, setErrorMsg] = useState('');
+  const [modalError, setModalError] = useState('');
+  const [editingBatch, setEditingBatch] = useState<InventoryBatch | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{ type: 'medicine' | 'batch'; id: number; medId?: number; label: string } | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
   const t = (key: any) => getTranslation(lang, key);
 
   const loadMedicines = async () => {
@@ -81,8 +92,8 @@ export const MedicinesPage: React.FC<MedicinesPageProps> = ({
       setLoading(true);
       const data = await api.getMedicines(search);
       setMedicines(data);
-    } catch (err) {
-      console.error(err);
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Failed to load medicines');
     } finally {
       setLoading(false);
     }
@@ -112,25 +123,33 @@ export const MedicinesPage: React.FC<MedicinesPageProps> = ({
   // Save Medicine
   const handleSaveMedicine = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editingMed.brand_name || !editingMed.generic_name || !editingMed.sale_price) {
-      alert('Please fill all required medicine fields.');
+    setModalError('');
+    if (!editingMed.brand_name?.trim() || !editingMed.generic_name?.trim() || !editingMed.sale_price) {
+      setModalError(lang === 'bn' ? 'দয়া করে ব্র্যান্ড, জেনেরিক ও বিক্রয় মূল্য পূরণ করুন।' : 'Please fill all required medicine fields.');
       return;
     }
 
     try {
       await api.saveMedicine(editingMed, conversions.filter(c => c.unit_name && c.multiplier > 0));
       setShowMedModal(false);
+      setErrorMsg('');
+      setNotice(
+        editingMed.id
+          ? (lang === 'bn' ? `"${editingMed.brand_name}" আপডেট হয়েছে।` : `"${editingMed.brand_name}" updated.`)
+          : (lang === 'bn' ? `নতুন ওষুধ "${editingMed.brand_name}" যোগ হয়েছে।` : `Added "${editingMed.brand_name}".`)
+      );
       loadMedicines();
     } catch (err: any) {
-      alert(err.message || 'Failed to save medicine');
+      setModalError(err.message || 'Failed to save medicine');
     }
   };
 
   // Add Batch
   const handleSaveBatch = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedMedForBatch || !newBatch.batch_number || !newBatch.expiry_date) {
-      alert('Batch number and expiry date are required.');
+    setModalError('');
+    if (!selectedMedForBatch || !newBatch.batch_number?.trim() || !newBatch.expiry_date) {
+      setModalError(lang === 'bn' ? 'ব্যাচ নম্বর ও মেয়াদের তারিখ অবশ্যই দিন।' : 'Batch number and expiry date are required.');
       return;
     }
 
@@ -141,12 +160,88 @@ export const MedicinesPage: React.FC<MedicinesPageProps> = ({
         stock_unit: selectedMedForBatch.base_unit
       });
       setShowBatchModal(false);
-      // reload batches and medicines
+      setErrorMsg('');
+      setNotice(lang === 'bn' ? `নতুন ব্যাচ "${newBatch.batch_number}" যোগ হয়েছে।` : `Batch "${newBatch.batch_number}" added.`);
       const b = await api.getBatches(selectedMedForBatch.id, true);
       setBatchesMap(prev => ({ ...prev, [selectedMedForBatch.id]: b }));
       loadMedicines();
     } catch (err: any) {
-      alert(err.message || 'Failed to add batch');
+      setModalError(err.message || 'Failed to add batch');
+    }
+  };
+
+  // Update Batch
+  const handleUpdateBatch = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingBatch) return;
+    setModalError('');
+    if (!editingBatch.batch_number?.trim() || !editingBatch.expiry_date) {
+      setModalError(lang === 'bn' ? 'ব্যাচ নম্বর ও মেয়াদ অবশ্যই দিন।' : 'Batch number and expiry date are required.');
+      return;
+    }
+    try {
+      await api.updateBatch(editingBatch.id, {
+        batch_number: editingBatch.batch_number,
+        expiry_date: editingBatch.expiry_date,
+        purchase_cost: editingBatch.purchase_cost,
+        remaining_qty: editingBatch.remaining_qty
+      });
+      const medId = editingBatch.medicine_id;
+      setEditingBatch(null);
+      setErrorMsg('');
+      setNotice(lang === 'bn' ? 'ব্যাচের তথ্য ও স্টক সংশোধন হয়েছে।' : 'Batch updated successfully.');
+      const b = await api.getBatches(medId, true);
+      setBatchesMap(prev => ({ ...prev, [medId]: b }));
+      loadMedicines();
+    } catch (err: any) {
+      setModalError(err.message || 'Failed to update batch');
+    }
+  };
+
+  // Toggle Active Status
+  const handleToggleActive = async (med: Medicine) => {
+    setErrorMsg('');
+    setNotice('');
+    try {
+      const nextActive = med.active === 1 ? false : true;
+      await api.setMedicineActive(med.id, nextActive);
+      setNotice(
+        lang === 'bn'
+          ? `"${med.brand_name}" ${nextActive ? 'চালু' : 'বন্ধ (Inactive)'} করা হয়েছে।`
+          : `"${med.brand_name}" marked ${nextActive ? 'active' : 'inactive'}.`
+      );
+      loadMedicines();
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Failed to update status');
+    }
+  };
+
+  // Delete Medicine or Batch
+  const handleConfirmDelete = async () => {
+    if (!deleteTarget) return;
+    setIsDeleting(true);
+    setErrorMsg('');
+    setNotice('');
+    try {
+      if (deleteTarget.type === 'medicine') {
+        await api.deleteMedicine(deleteTarget.id);
+        setNotice(lang === 'bn' ? `"${deleteTarget.label}" তালিকা থেকে মুছে ফেলা হয়েছে।` : `Deleted "${deleteTarget.label}".`);
+        loadMedicines();
+      } else {
+        await api.deleteBatch(deleteTarget.id);
+        setNotice(lang === 'bn' ? `ব্যাচ "${deleteTarget.label}" মুছে ফেলা হয়েছে।` : `Deleted batch "${deleteTarget.label}".`);
+        if (deleteTarget.medId) {
+          const b = await api.getBatches(deleteTarget.medId, true);
+          setBatchesMap(prev => ({ ...prev, [deleteTarget.medId!]: b }));
+        }
+        loadMedicines();
+      }
+      setDeleteTarget(null);
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Delete failed');
+      setDeleteTarget(null);
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -154,6 +249,7 @@ export const MedicinesPage: React.FC<MedicinesPageProps> = ({
   const handleExcelFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    setModalError('');
 
     const reader = new FileReader();
     reader.onload = async (evt) => {
@@ -164,7 +260,7 @@ export const MedicinesPage: React.FC<MedicinesPageProps> = ({
         const res = await api.importExcelMedicines(base64, 'preview');
         setExcelPreview(res);
       } catch (err: any) {
-        alert(err.message || 'Error parsing Excel file');
+        setModalError(err.message || 'Error parsing Excel file');
       } finally {
         setIsImporting(false);
       }
@@ -175,13 +271,14 @@ export const MedicinesPage: React.FC<MedicinesPageProps> = ({
   // Execute Excel Import
   const handleExecuteImport = async () => {
     if (!excelBase64) return;
+    setModalError('');
     try {
       setIsImporting(true);
       const res = await api.importExcelMedicines(excelBase64, 'execute');
       setImportSummary(`Successfully imported ${res.insertedCount} new medicines.`);
       loadMedicines();
     } catch (err: any) {
-      alert(err.message || 'Import failed');
+      setModalError(err.message || 'Import failed');
     } finally {
       setIsImporting(false);
     }
@@ -204,6 +301,7 @@ export const MedicinesPage: React.FC<MedicinesPageProps> = ({
             onClick={() => {
               setExcelPreview(null);
               setImportSummary('');
+              setModalError('');
               setShowExcelModal(true);
             }}
             className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
@@ -226,6 +324,7 @@ export const MedicinesPage: React.FC<MedicinesPageProps> = ({
                 active: 1
               });
               setConversions([{ unit_name: 'Strip', multiplier: 10 }]);
+              setModalError('');
               setShowMedModal(true);
             }}
             className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-xs flex items-center gap-1.5 transition-colors cursor-pointer"
@@ -235,6 +334,30 @@ export const MedicinesPage: React.FC<MedicinesPageProps> = ({
           </button>
         </div>
       </div>
+
+      {notice && (
+        <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-800 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span className="font-semibold">{notice}</span>
+          </div>
+          <button onClick={() => setNotice('')} className="text-emerald-600 hover:text-emerald-800 cursor-pointer">
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
+      {errorMsg && (
+        <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-800 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+            <span className="font-semibold">{errorMsg}</span>
+          </div>
+          <button onClick={() => setErrorMsg('')} className="text-rose-600 hover:text-rose-800 cursor-pointer">
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
 
       {/* Search Input Bar */}
       <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex items-center gap-3">
@@ -297,8 +420,15 @@ export const MedicinesPage: React.FC<MedicinesPageProps> = ({
                           </button>
                         </td>
                         <td className="p-3 font-semibold text-slate-900">
-                          {med.brand_name}
+                          <span className={med.active === 0 ? 'line-through text-slate-400' : ''}>
+                            {med.brand_name}
+                          </span>
                           <span className="text-slate-500 font-normal ml-1">({med.strength})</span>
+                          {med.active === 0 && (
+                            <span className="ml-1.5 text-[10px] font-mono bg-slate-200 text-slate-600 px-1 rounded">
+                              Inactive
+                            </span>
+                          )}
                           {med.barcode && (
                             <span className="ml-2 font-mono text-[10px] bg-slate-100 text-slate-600 px-1 rounded">
                               {med.barcode}
@@ -319,7 +449,7 @@ export const MedicinesPage: React.FC<MedicinesPageProps> = ({
                           </span>
                         </td>
                         <td className="p-3 text-center">
-                          <div className="flex items-center justify-center gap-1.5">
+                          <div className="flex items-center justify-center gap-1">
                             <button
                               onClick={() => {
                                 setSelectedMedForBatch(med);
@@ -330,9 +460,10 @@ export const MedicinesPage: React.FC<MedicinesPageProps> = ({
                                   initial_qty: 100,
                                   remaining_qty: 100
                                 });
+                                setModalError('');
                                 setShowBatchModal(true);
                               }}
-                              className="px-2 py-1 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded text-[11px] font-semibold cursor-pointer"
+                              className="px-2 py-1 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded text-[11px] font-semibold cursor-pointer whitespace-nowrap"
                             >
                               + Batch
                             </button>
@@ -340,11 +471,33 @@ export const MedicinesPage: React.FC<MedicinesPageProps> = ({
                               onClick={() => {
                                 setEditingMed(med);
                                 setConversions(med.conversions || []);
+                                setModalError('');
                                 setShowMedModal(true);
                               }}
-                              className="px-2 py-1 bg-slate-100 text-slate-700 hover:bg-slate-200 rounded text-[11px] font-semibold cursor-pointer"
+                              className="p-1.5 bg-slate-100 text-slate-700 hover:bg-slate-200 rounded cursor-pointer"
+                              title={lang === 'bn' ? 'সংশোধন করুন' : 'Edit'}
                             >
-                              Edit
+                              <Pencil className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleToggleActive(med)}
+                              className={`p-1.5 rounded cursor-pointer ${
+                                med.active === 1
+                                  ? 'bg-slate-100 text-slate-600 hover:bg-amber-50 hover:text-amber-700'
+                                  : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                              }`}
+                              title={med.active === 1 ? (lang === 'bn' ? 'বন্ধ করুন (POS থেকে লুকান)' : 'Deactivate') : (lang === 'bn' ? 'পুনরায় চালু করুন' : 'Activate')}
+                            >
+                              <Power className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setDeleteTarget({ type: 'medicine', id: med.id, label: med.brand_name })}
+                              className="p-1.5 bg-rose-50 text-rose-600 hover:bg-rose-100 rounded cursor-pointer"
+                              title={lang === 'bn' ? 'ওষুধ মুছুন' : 'Delete medicine'}
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
                             </button>
                           </div>
                         </td>
@@ -377,6 +530,7 @@ export const MedicinesPage: React.FC<MedicinesPageProps> = ({
                                       <th className="p-2 text-right">Purchase Cost</th>
                                       <th className="p-2 text-right">Remaining Stock</th>
                                       <th className="p-2 text-center">Status</th>
+                                      <th className="p-2 text-center w-20">Actions</th>
                                     </tr>
                                   </thead>
                                   <tbody className="divide-y divide-slate-100">
@@ -408,6 +562,29 @@ export const MedicinesPage: React.FC<MedicinesPageProps> = ({
                                             }`}>
                                               {isExp ? 'Expired' : b.status}
                                             </span>
+                                          </td>
+                                          <td className="p-2 text-center">
+                                            <div className="flex items-center justify-center gap-1">
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  setEditingBatch({ ...b });
+                                                  setModalError('');
+                                                }}
+                                                className="p-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 cursor-pointer"
+                                                title={lang === 'bn' ? 'ব্যাচ সংশোধন করুন' : 'Edit batch'}
+                                              >
+                                                <Pencil className="w-3 h-3" />
+                                              </button>
+                                              <button
+                                                type="button"
+                                                onClick={() => setDeleteTarget({ type: 'batch', id: b.id, medId: med.id, label: b.batch_number })}
+                                                className="p-1 rounded bg-rose-50 hover:bg-rose-100 text-rose-600 cursor-pointer"
+                                                title={lang === 'bn' ? 'ব্যাচ মুছুন' : 'Delete batch'}
+                                              >
+                                                <Trash2 className="w-3 h-3" />
+                                              </button>
+                                            </div>
                                           </td>
                                         </tr>
                                       );
@@ -442,6 +619,12 @@ export const MedicinesPage: React.FC<MedicinesPageProps> = ({
             </div>
 
             <form onSubmit={handleSaveMedicine} className="p-5 space-y-3.5 text-xs">
+              {modalError && (
+                <div className="p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                  <span>{modalError}</span>
+                </div>
+              )}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block font-semibold text-slate-700 mb-1">{t('med_brand_name')} *</label>
@@ -617,6 +800,12 @@ export const MedicinesPage: React.FC<MedicinesPageProps> = ({
             </div>
 
             <form onSubmit={handleSaveBatch} className="p-5 space-y-3.5 text-xs">
+              {modalError && (
+                <div className="p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                  <span>{modalError}</span>
+                </div>
+              )}
               <div>
                 <label className="block font-semibold text-slate-700 mb-1">{t('med_batch_no')} *</label>
                 <input
@@ -705,6 +894,12 @@ export const MedicinesPage: React.FC<MedicinesPageProps> = ({
             </div>
 
             <div className="p-5 flex-1 overflow-y-auto space-y-4 text-xs">
+              {modalError && (
+                <div className="p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                  <span>{modalError}</span>
+                </div>
+              )}
               {!excelPreview && !importSummary && (
                 <div className="border-2 border-dashed border-slate-300 rounded-xl p-8 text-center hover:bg-slate-50/50 transition-colors">
                   <Upload className="w-8 h-8 text-slate-400 mx-auto mb-2" />
@@ -794,6 +989,138 @@ export const MedicinesPage: React.FC<MedicinesPageProps> = ({
                   {isImporting ? 'Importing...' : t('med_excel_confirm_import')}
                 </button>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Batch Modal */}
+      {editingBatch && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="w-full max-w-md bg-white rounded-xl shadow-2xl border border-slate-200 overflow-hidden">
+            <div className="px-5 py-3.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+              <h3 className="text-sm font-bold text-slate-800">
+                {lang === 'bn' ? 'ব্যাচ তথ্য ও স্টক সংশোধন' : 'Edit Batch'} — {editingBatch.batch_number}
+              </h3>
+              <button onClick={() => setEditingBatch(null)} className="text-slate-400 hover:text-slate-700 cursor-pointer">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleUpdateBatch} className="p-5 space-y-3.5 text-xs">
+              {modalError && (
+                <div className="p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                  <span>{modalError}</span>
+                </div>
+              )}
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">{t('med_batch_no')} *</label>
+                <input
+                  type="text"
+                  required
+                  value={editingBatch.batch_number}
+                  onChange={(e) => setEditingBatch({ ...editingBatch, batch_number: e.target.value })}
+                  className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs font-mono uppercase"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">{t('med_expiry')} *</label>
+                  <input
+                    type="date"
+                    required
+                    value={editingBatch.expiry_date}
+                    onChange={(e) => setEditingBatch({ ...editingBatch, expiry_date: e.target.value })}
+                    className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">{t('med_purchase_cost')}</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    required
+                    value={editingBatch.purchase_cost}
+                    onChange={(e) => setEditingBatch({ ...editingBatch, purchase_cost: parseFloat(e.target.value) || 0 })}
+                    className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs text-right tabular-nums font-semibold"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">
+                  {lang === 'bn' ? 'অবশিষ্ট স্টক পরিমাণ' : 'Remaining Stock Qty'} ({editingBatch.stock_unit})
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  required
+                  value={editingBatch.remaining_qty}
+                  onChange={(e) => setEditingBatch({ ...editingBatch, remaining_qty: parseInt(e.target.value, 10) || 0 })}
+                  className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs font-bold text-center tabular-nums"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => setEditingBatch(null)}
+                  className="px-3 py-1.5 border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-50 cursor-pointer"
+                >
+                  {t('cancel')}
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-semibold shadow-xs cursor-pointer"
+                >
+                  {t('save')}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Medicine / Batch Confirmation Modal */}
+      {deleteTarget && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="w-full max-w-sm bg-white rounded-xl shadow-2xl border border-slate-200 p-5 space-y-4 text-xs">
+            <div className="flex items-center gap-2.5 text-rose-600">
+              <Trash2 className="w-5 h-5 shrink-0" />
+              <h3 className="text-sm font-bold text-slate-900">
+                {deleteTarget.type === 'medicine'
+                  ? (lang === 'bn' ? 'ওষুধ মুছে ফেলবেন?' : 'Delete Medicine?')
+                  : (lang === 'bn' ? 'ব্যাচ মুছে ফেলবেন?' : 'Delete Batch?')}
+              </h3>
+            </div>
+            <p className="text-slate-600 leading-relaxed">
+              {deleteTarget.type === 'medicine'
+                ? (lang === 'bn'
+                  ? `"${deleteTarget.label}" তালিকা থেকে স্থায়ীভাবে মুছে ফেলা হবে। যদি কোনো স্টক বা বিক্রি আগে থেকেই যুক্ত থাকে, তবে তা মুছবে না — সেক্ষেত্রে পাশের বন্ধ (Power) বাটন দিয়ে লুকিয়ে রাখতে পারবেন।`
+                  : `Permanently delete "${deleteTarget.label}"? Medicines with batches or sales cannot be deleted; use Deactivate instead.`)
+                : (lang === 'bn'
+                  ? `ব্যাচ "${deleteTarget.label}" মুছে ফেলা হবে। যদি এই ব্যাচ থেকে আগে বিক্রি হয়ে থাকে, তবে Edit করে স্টক ০ করে দিন।`
+                  : `Delete batch "${deleteTarget.label}"? Batches with recorded sales cannot be deleted.`)}
+            </p>
+            <div className="flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setDeleteTarget(null)}
+                className="px-3 py-1.5 border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-50 cursor-pointer"
+              >
+                {t('cancel')}
+              </button>
+              <button
+                type="button"
+                disabled={isDeleting}
+                onClick={handleConfirmDelete}
+                className="px-4 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg font-semibold cursor-pointer disabled:opacity-50"
+              >
+                {isDeleting ? '...' : (lang === 'bn' ? 'হ্যাঁ, মুছে ফেলুন' : 'Delete')}
+              </button>
             </div>
           </div>
         </div>

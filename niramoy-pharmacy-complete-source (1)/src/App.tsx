@@ -19,7 +19,7 @@ import { ReportsPage } from './pages/ReportsPage';
 import { BackupsPage } from './pages/BackupsPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { DiagnosticsPage } from './pages/DiagnosticsPage';
-import { SecurityPage } from './pages/SecurityPage';
+import { getBangladeshTodayClient } from './services/formatters';
 
 export default function App() {
   const [currentTab, setCurrentTab] = useState<string>('dashboard');
@@ -100,7 +100,7 @@ export default function App() {
       invoice_number: 'INV-TEST-RECEIPT',
       customer_name: 'Mr. Rafiqul Islam',
       customer_phone: '+880 1819-234567',
-      sale_date: new Date().toISOString().split('T')[0],
+      sale_date: getBangladeshTodayClient(),
       subtotal: 350.0,
       discount_type: 'percentage',
       discount_value: 5,
@@ -169,7 +169,7 @@ export default function App() {
       <div className="h-screen w-screen bg-slate-900 flex items-center justify-center text-white text-xs font-mono">
         <div className="text-center space-y-3">
           <div className="w-8 h-8 border-3 border-emerald-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
-          <div>Initializing Niramoy Local SQLite Architecture...</div>
+          <div>Niramoy Pharmacy লোড হচ্ছে...</div>
         </div>
       </div>
     );
@@ -194,7 +194,6 @@ export default function App() {
           onLanguageChange={handleLanguageChange}
           onLockSession={() => setIsLocked(true)}
           settings={settings}
-          onOpenTestReceipt={handleOpenTestReceipt}
         />
 
         {/* Dynamic Page Views */}
@@ -262,6 +261,7 @@ export default function App() {
             <ReportsPage
               lang={lang}
               settings={settings}
+              onReprintReceipt={setPreviewInvoice}
             />
           )}
 
@@ -285,14 +285,6 @@ export default function App() {
             <DiagnosticsPage
               lang={lang}
               settings={settings}
-            />
-          )}
-
-          {currentTab === 'security' && (
-            <SecurityPage
-              lang={lang}
-              settings={settings}
-              recoveryKey={recoveryKey}
             />
           )}
         </main>

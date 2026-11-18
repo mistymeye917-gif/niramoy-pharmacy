@@ -206,6 +206,8 @@ export interface SaleLine {
   unit_price: number;
   line_total: number;
   cost_of_goods: number;
+  batch_id?: number;
+  returned_qty?: number;
 }
 
 export interface SalePaymentRecord {

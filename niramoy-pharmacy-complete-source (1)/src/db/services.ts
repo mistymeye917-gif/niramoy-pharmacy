@@ -36,6 +36,13 @@ export function getBangladeshToday(): string {
   }).format(new Date());
 }
 
+export function getBangladeshDateOffset(daysToAdd: number): string {
+  const todayStr = getBangladeshToday();
+  const [y, m, d] = todayStr.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d + daysToAdd));
+  return dt.toISOString().split('T')[0];
+}
+
 // ----------------------------------------------------
 // SETTINGS
 // ----------------------------------------------------
@@ -86,14 +93,15 @@ export function updateSettings(newSettings: Partial<PharmacySettings>): boolean 
 // ----------------------------------------------------
 export function getMedicines(search?: string, activeOnly: boolean = false): Medicine[] {
   const db = getDb();
+  const today = getBangladeshToday();
   let sql = `
     SELECT m.*, 
       COALESCE(SUM(b.remaining_qty), 0) AS total_stock,
       COUNT(DISTINCT b.id) AS active_batches_count
     FROM medicines m
-    LEFT JOIN inventory_batches b ON m.id = b.medicine_id AND b.remaining_qty > 0 AND b.status = 'active' AND b.expiry_date >= date('now')
+    LEFT JOIN inventory_batches b ON m.id = b.medicine_id AND b.remaining_qty > 0 AND b.status = 'active' AND b.expiry_date >= ?
   `;
-  const params: any[] = [];
+  const params: any[] = [today];
   const whereClauses: string[] = [];
 
   if (activeOnly) {
@@ -125,15 +133,16 @@ export function getMedicines(search?: string, activeOnly: boolean = false): Medi
 
 export function getMedicineById(id: number): Medicine | null {
   const db = getDb();
+  const today = getBangladeshToday();
   const med = db.prepare(`
     SELECT m.*, 
       COALESCE(SUM(b.remaining_qty), 0) AS total_stock,
       COUNT(DISTINCT b.id) AS active_batches_count
     FROM medicines m
-    LEFT JOIN inventory_batches b ON m.id = b.medicine_id AND b.remaining_qty > 0 AND b.status = 'active' AND b.expiry_date >= date('now')
+    LEFT JOIN inventory_batches b ON m.id = b.medicine_id AND b.remaining_qty > 0 AND b.status = 'active' AND b.expiry_date >= ?
     WHERE m.id = ?
     GROUP BY m.id
-  `).get(id) as any;
+  `).get(today, id) as any;
 
   if (!med) return null;
   med.conversions = db.prepare('SELECT unit_name, multiplier FROM unit_conversions WHERE medicine_id = ?').all(id);
@@ -207,8 +216,45 @@ export function saveMedicine(medicine: Partial<Medicine>, conversions?: { unit_n
   }
 }
 
+export function deleteMedicine(id: number): boolean {
+  const db = getDb();
+  const med = db.prepare('SELECT * FROM medicines WHERE id = ?').get(id) as unknown as Medicine | undefined;
+  if (!med) throw new Error('ওষুধ খুঁজে পাওয়া যায়নি।');
+
+  const batchCount = (db.prepare('SELECT COUNT(*) as c FROM inventory_batches WHERE medicine_id = ?').get(id) as { c: number }).c;
+  const saleCount = (db.prepare('SELECT COUNT(*) as c FROM sales_lines WHERE medicine_id = ?').get(id) as { c: number }).c;
+  const purchaseCount = (db.prepare('SELECT COUNT(*) as c FROM purchase_lines WHERE medicine_id = ?').get(id) as { c: number }).c;
+
+  if (batchCount > 0 || saleCount > 0 || purchaseCount > 0) {
+    throw new Error('এই ওষুধের সাথে পূর্বের স্টক, ক্রয় বা বিক্রয়ের হিসাব যুক্ত আছে। এটি মুছে ফেলা যাবে না — প্রয়োজনে বন্ধ (Inactive) করে রাখতে পারেন।');
+  }
+
+  db.exec('BEGIN TRANSACTION;');
+  try {
+    db.prepare('DELETE FROM medicines WHERE id = ?').run(id);
+    db.prepare('INSERT INTO audit_logs (user_action, entity_type, entity_id, details, timestamp) VALUES (?, ?, ?, ?, ?)')
+      .run('MEDICINE_DELETED', 'medicine', String(id), `Deleted medicine: ${med.brand_name}`, new Date().toISOString());
+    db.exec('COMMIT;');
+    return true;
+  } catch (err) {
+    db.exec('ROLLBACK;');
+    throw err;
+  }
+}
+
+export function setMedicineActive(id: number, active: boolean): boolean {
+  const db = getDb();
+  const med = db.prepare('SELECT id, brand_name FROM medicines WHERE id = ?').get(id) as { id: number; brand_name: string } | undefined;
+  if (!med) throw new Error('ওষুধ খুঁজে পাওয়া যায়নি।');
+  db.prepare('UPDATE medicines SET active = ?, updated_at = ? WHERE id = ?').run(active ? 1 : 0, new Date().toISOString(), id);
+  db.prepare('INSERT INTO audit_logs (user_action, entity_type, entity_id, details, timestamp) VALUES (?, ?, ?, ?, ?)')
+    .run('MEDICINE_STATUS', 'medicine', String(id), `${med.brand_name} marked ${active ? 'active' : 'inactive'}`, new Date().toISOString());
+  return true;
+}
+
 export function getBatches(medicineId?: number, includeExpired: boolean = false): InventoryBatch[] {
   const db = getDb();
+  const today = getBangladeshToday();
   let sql = `
     SELECT b.*, m.brand_name, m.generic_name, m.manufacturer, m.strength, m.base_unit, m.sale_price,
            s.name as supplier_name
@@ -225,7 +271,8 @@ export function getBatches(medicineId?: number, includeExpired: boolean = false)
   }
 
   if (!includeExpired) {
-    conditions.push("b.expiry_date >= date('now')");
+    conditions.push('b.expiry_date >= ?');
+    params.push(today);
     conditions.push("b.status = 'active'");
   }
 
@@ -242,7 +289,9 @@ export function getBatches(medicineId?: number, includeExpired: boolean = false)
 export function addBatchManually(batch: Partial<InventoryBatch>): number {
   const db = getDb();
   const now = new Date().toISOString();
-  const isExpired = new Date(batch.expiry_date || '') < new Date();
+  const today = getBangladeshToday();
+  const expiryDate = batch.expiry_date || today;
+  const isExpired = expiryDate < today;
 
   db.prepare(`
     INSERT INTO inventory_batches (medicine_id, batch_number, expiry_date, purchase_cost, initial_qty, remaining_qty, stock_unit, purchase_ref, supplier_id, date_received, status)
@@ -250,7 +299,7 @@ export function addBatchManually(batch: Partial<InventoryBatch>): number {
   `).run(
     batch.medicine_id ?? 0,
     batch.batch_number || '',
-    batch.expiry_date || now.split('T')[0],
+    expiryDate,
     batch.purchase_cost ?? 0,
     batch.initial_qty ?? 0,
     batch.remaining_qty ?? 0,
@@ -264,17 +313,86 @@ export function addBatchManually(batch: Partial<InventoryBatch>): number {
   return (db.prepare('SELECT last_insert_rowid() as id').get() as { id: number }).id;
 }
 
+export function updateBatch(
+  id: number,
+  updates: { batch_number: string; expiry_date: string; purchase_cost: number; remaining_qty: number }
+): boolean {
+  const db = getDb();
+  const existing = db.prepare('SELECT * FROM inventory_batches WHERE id = ?').get(id) as unknown as InventoryBatch | undefined;
+  if (!existing) throw new Error('ব্যাচ খুঁজে পাওয়া যায়নি।');
+
+  const today = getBangladeshToday();
+  const now = new Date().toISOString();
+  const newRemaining = Math.max(0, Number(updates.remaining_qty || 0));
+  const newCost = Math.max(0, Number(updates.purchase_cost || 0));
+  const newExpiry = updates.expiry_date || existing.expiry_date;
+  const newBatchNo = (updates.batch_number || existing.batch_number).trim().toUpperCase();
+  const newStatus = newExpiry < today ? 'expired' : newRemaining <= 0 ? 'depleted' : 'active';
+  const delta = newRemaining - existing.remaining_qty;
+
+  db.exec('BEGIN TRANSACTION;');
+  try {
+    db.prepare(`
+      UPDATE inventory_batches
+      SET batch_number = ?, expiry_date = ?, purchase_cost = ?, remaining_qty = ?, status = ?
+      WHERE id = ?
+    `).run(newBatchNo, newExpiry, newCost, newRemaining, newStatus, id);
+
+    if (delta !== 0) {
+      db.prepare(`
+        INSERT INTO stock_adjustments (medicine_id, batch_id, adjustment_type, quantity_delta, reason, created_at)
+        VALUES (?, ?, 'audit_correction', ?, ?, ?)
+      `).run(existing.medicine_id, id, delta, `Manual batch correction (${existing.batch_number} -> ${newBatchNo})`, now);
+    }
+
+    db.prepare('INSERT INTO audit_logs (user_action, entity_type, entity_id, details, timestamp) VALUES (?, ?, ?, ?, ?)')
+      .run('BATCH_UPDATED', 'batch', String(id), `Updated batch ${newBatchNo}: qty ${existing.remaining_qty} -> ${newRemaining}, exp ${newExpiry}`, now);
+
+    db.exec('COMMIT;');
+    return true;
+  } catch (err) {
+    db.exec('ROLLBACK;');
+    throw err;
+  }
+}
+
+export function deleteBatch(id: number): boolean {
+  const db = getDb();
+  const existing = db.prepare('SELECT * FROM inventory_batches WHERE id = ?').get(id) as unknown as InventoryBatch | undefined;
+  if (!existing) throw new Error('ব্যাচ খুঁজে পাওয়া যায়নি।');
+
+  const usedInSales = (db.prepare('SELECT COUNT(*) as c FROM sales_batch_allocations WHERE batch_id = ?').get(id) as { c: number }).c;
+  const usedInReturns = (db.prepare('SELECT COUNT(*) as c FROM return_lines WHERE batch_id = ?').get(id) as { c: number }).c;
+  if (usedInSales > 0 || usedInReturns > 0) {
+    throw new Error('এই ব্যাচ থেকে ইতিমধ্যে ওষুধ বিক্রি হয়েছে, তাই হিসাবের নিরাপত্তার জন্য মুছে ফেলা যাবে না। প্রয়োজনে Edit করে স্টক ০ করে দিন।');
+  }
+
+  db.exec('BEGIN TRANSACTION;');
+  try {
+    db.prepare('DELETE FROM stock_adjustments WHERE batch_id = ?').run(id);
+    db.prepare('DELETE FROM inventory_batches WHERE id = ?').run(id);
+    db.prepare('INSERT INTO audit_logs (user_action, entity_type, entity_id, details, timestamp) VALUES (?, ?, ?, ?, ?)')
+      .run('BATCH_DELETED', 'batch', String(id), `Deleted unused batch ${existing.batch_number}`, new Date().toISOString());
+    db.exec('COMMIT;');
+    return true;
+  } catch (err) {
+    db.exec('ROLLBACK;');
+    throw err;
+  }
+}
+
 // ----------------------------------------------------
 // FEFO BATCH ALLOCATION ENGINE
 // ----------------------------------------------------
 export function allocateFEFOBatches(medicineId: number, baseQtyNeeded: number) {
   const db = getDb();
+  const today = getBangladeshToday();
   // Get active, unexpired batches with remaining stock, sorted by earliest expiry
   const batches = db.prepare(`
     SELECT * FROM inventory_batches 
-    WHERE medicine_id = ? AND remaining_qty > 0 AND status = 'active' AND expiry_date >= date('now')
+    WHERE medicine_id = ? AND remaining_qty > 0 AND status = 'active' AND expiry_date >= ?
     ORDER BY expiry_date ASC, id ASC
-  `).all(medicineId) as unknown as InventoryBatch[];
+  `).all(medicineId, today) as unknown as InventoryBatch[];
 
   let remainingToAllocate = baseQtyNeeded;
   const allocations: {
@@ -557,7 +675,13 @@ export function getSaleInvoiceById(id: number): SaleInvoice | null {
   const inv = db.prepare('SELECT * FROM sales_invoices WHERE id = ?').get(id) as any;
   if (!inv) return null;
 
-  inv.items = db.prepare('SELECT * FROM sales_lines WHERE sale_id = ?').all(id);
+  inv.items = db.prepare(`
+    SELECT sl.*,
+      (SELECT sba.batch_id FROM sales_batch_allocations sba WHERE sba.sale_line_id = sl.id ORDER BY sba.id ASC LIMIT 1) as batch_id,
+      COALESCE((SELECT SUM(rl.quantity) FROM return_lines rl WHERE rl.sale_line_id = sl.id), 0) as returned_qty
+    FROM sales_lines sl
+    WHERE sl.sale_id = ?
+  `).all(id);
   inv.payments = db.prepare('SELECT * FROM sales_payments WHERE sale_id = ?').all(id);
 
   if (inv.pharmacy_snapshot_json) {
@@ -586,7 +710,13 @@ export function getSaleInvoices(limit = 100, search?: string): SaleInvoice[] {
   params.push(limit);
 
   const rows = db.prepare(sql).all(...params) as any[];
-  const itemStmt = db.prepare('SELECT * FROM sales_lines WHERE sale_id = ?');
+  const itemStmt = db.prepare(`
+    SELECT sl.*,
+      (SELECT sba.batch_id FROM sales_batch_allocations sba WHERE sba.sale_line_id = sl.id ORDER BY sba.id ASC LIMIT 1) as batch_id,
+      COALESCE((SELECT SUM(rl.quantity) FROM return_lines rl WHERE rl.sale_line_id = sl.id), 0) as returned_qty
+    FROM sales_lines sl
+    WHERE sl.sale_id = ?
+  `);
   const payStmt = db.prepare('SELECT * FROM sales_payments WHERE sale_id = ?');
 
   for (const r of rows) {
@@ -685,7 +815,7 @@ export function executePurchase(purchaseData: {
         WHERE medicine_id = ? AND batch_number = ?
       `).get(item.medicine_id, item.batch_number) as { id: number; remaining_qty: number; initial_qty: number } | undefined;
 
-      const isExpired = new Date(item.expiry_date) < new Date();
+      const isExpired = item.expiry_date < getBangladeshToday();
 
       if (existingBatch) {
         db.prepare(`
@@ -801,6 +931,7 @@ export function processReturn(data: {
   try {
     const sale = db.prepare('SELECT * FROM sales_invoices WHERE id = ?').get(data.sale_id) as unknown as SaleInvoice;
     if (!sale) throw new Error('Original sale invoice not found.');
+    if (sale.status === 'cancelled') throw new Error('বাতিল হওয়া বিলের ওষুধ রিটার্ন করা যাবে না।');
 
     let totalRefund = 0;
     for (const item of data.items) {
@@ -822,12 +953,39 @@ export function processReturn(data: {
     `);
 
     for (const item of data.items) {
+      const saleLine = db.prepare('SELECT * FROM sales_lines WHERE id = ? AND sale_id = ?').get(item.sale_line_id, data.sale_id) as any;
+      if (!saleLine) {
+        throw new Error('বিক্রয়ের লাইন খুঁজে পাওয়া যায়নি।');
+      }
+      const prevReturned = (db.prepare('SELECT COALESCE(SUM(quantity), 0) as qty FROM return_lines WHERE sale_line_id = ?').get(item.sale_line_id) as { qty: number }).qty;
+      if (prevReturned + item.quantity_to_return > saleLine.quantity + 0.001) {
+        throw new Error(`${saleLine.brand_name} — বিক্রিত পরিমাণের চেয়ে বেশি রিটার্ন করা যাবে না।`);
+      }
+
+      // Resolve authoritative batch_id from sales_batch_allocations if provided batch_id is missing or invalid
+      let resolvedBatchId = item.batch_id;
+      const batchExists = resolvedBatchId
+        ? db.prepare('SELECT id FROM inventory_batches WHERE id = ? AND medicine_id = ?').get(resolvedBatchId, item.medicine_id)
+        : undefined;
+      if (!batchExists) {
+        const alloc = db.prepare('SELECT batch_id FROM sales_batch_allocations WHERE sale_line_id = ? ORDER BY id ASC LIMIT 1').get(item.sale_line_id) as { batch_id: number } | undefined;
+        if (alloc) {
+          resolvedBatchId = alloc.batch_id;
+        } else {
+          const fallbackBatch = db.prepare('SELECT id FROM inventory_batches WHERE medicine_id = ? ORDER BY id DESC LIMIT 1').get(item.medicine_id) as { id: number } | undefined;
+          if (!fallbackBatch) {
+            throw new Error(`${saleLine.brand_name} এর কোনো ব্যাচ ডেটাবেসে পাওয়া যায়নি।`);
+          }
+          resolvedBatchId = fallbackBatch.id;
+        }
+      }
+
       const baseQty = item.quantity_to_return * (item.multiplier || 1);
       insertReturnLine.run(
         returnId,
         item.sale_line_id,
         item.medicine_id,
-        item.batch_id,
+        resolvedBatchId,
         item.quantity_to_return,
         item.unit,
         baseQty,
@@ -838,17 +996,17 @@ export function processReturn(data: {
 
       // ONLY restock if classified as 'saleable'
       if (item.condition === 'saleable') {
-        db.prepare("UPDATE inventory_batches SET remaining_qty = remaining_qty + ?, status = 'active' WHERE id = ?").run(baseQty, item.batch_id);
+        db.prepare("UPDATE inventory_batches SET remaining_qty = remaining_qty + ?, status = 'active' WHERE id = ?").run(baseQty, resolvedBatchId);
         db.prepare(`
           INSERT INTO stock_adjustments (medicine_id, batch_id, adjustment_type, quantity_delta, reason, created_at)
           VALUES (?, ?, 'return_restock', ?, ?, ?)
-        `).run(item.medicine_id, item.batch_id, baseQty, `Sale Return from ${sale.invoice_number} (Condition: Saleable)`, now);
+        `).run(item.medicine_id, resolvedBatchId, baseQty, `Sale Return from ${sale.invoice_number} (Condition: Saleable)`, now);
       } else {
         // Track unsaleable stock separately in stock adjustments
         db.prepare(`
           INSERT INTO stock_adjustments (medicine_id, batch_id, adjustment_type, quantity_delta, reason, created_at)
           VALUES (?, ?, 'damage_writeoff', 0, ?, ?)
-        `).run(item.medicine_id, item.batch_id, `Damaged/Unsaleable item returned from ${sale.invoice_number} (${item.quantity_to_return} ${item.unit})`, now);
+        `).run(item.medicine_id, resolvedBatchId, `Damaged/Unsaleable item returned from ${sale.invoice_number} (${item.quantity_to_return} ${item.unit})`, now);
       }
     }
 
@@ -1109,6 +1267,30 @@ export function saveSupplier(supp: Partial<Supplier>): number {
   }
 }
 
+export function deleteSupplier(id: number): boolean {
+  const db = getDb();
+  const supp = db.prepare('SELECT * FROM suppliers WHERE id = ?').get(id) as unknown as Supplier | undefined;
+  if (!supp) throw new Error('সরবরাহকারী পাওয়া যায়নি।');
+
+  const purchaseCount = (db.prepare('SELECT COUNT(*) as c FROM purchase_invoices WHERE supplier_id = ?').get(id) as { c: number }).c;
+  const paymentCount = (db.prepare('SELECT COUNT(*) as c FROM supplier_payments WHERE supplier_id = ?').get(id) as { c: number }).c;
+  if (purchaseCount > 0 || paymentCount > 0) {
+    throw new Error('এই সরবরাহকারীর সাথে পূর্বের ক্রয় চালান বা পেমেন্ট যুক্ত আছে, তাই হিসাবের নিরাপত্তার জন্য মুছে ফেলা যাবে না।');
+  }
+
+  db.exec('BEGIN TRANSACTION;');
+  try {
+    db.prepare('DELETE FROM suppliers WHERE id = ?').run(id);
+    db.prepare('INSERT INTO audit_logs (user_action, entity_type, entity_id, details, timestamp) VALUES (?, ?, ?, ?, ?)')
+      .run('SUPPLIER_DELETED', 'supplier', String(id), `Deleted supplier: ${supp.name} (${supp.phone})`, new Date().toISOString());
+    db.exec('COMMIT;');
+    return true;
+  } catch (err) {
+    db.exec('ROLLBACK;');
+    throw err;
+  }
+}
+
 export function recordSupplierPayment(data: {
   supplier_id: number;
   purchase_id?: number;
@@ -1169,6 +1351,57 @@ export function addExpense(expense: Partial<Expense>): number {
     now
   );
   return (db.prepare('SELECT last_insert_rowid() as id').get() as { id: number }).id;
+}
+
+export function updateExpense(id: number, expense: Partial<Expense>): boolean {
+  const db = getDb();
+  const existing = db.prepare('SELECT * FROM expenses WHERE id = ?').get(id) as unknown as Expense | undefined;
+  if (!existing) throw new Error('খরচের রেকর্ড পাওয়া যায়নি।');
+
+  const now = new Date().toISOString();
+  db.exec('BEGIN TRANSACTION;');
+  try {
+    db.prepare(`
+      UPDATE expenses
+      SET category = ?, amount = ?, expense_date = ?, description = ?, payee = ?, payment_method = ?, reference_no = ?
+      WHERE id = ?
+    `).run(
+      expense.category || existing.category,
+      Number(expense.amount ?? existing.amount),
+      expense.expense_date || existing.expense_date,
+      expense.description || '',
+      expense.payee || '',
+      expense.payment_method || existing.payment_method,
+      expense.reference_no || '',
+      id
+    );
+    db.prepare('INSERT INTO audit_logs (user_action, entity_type, entity_id, details, timestamp) VALUES (?, ?, ?, ?, ?)')
+      .run('EXPENSE_UPDATED', 'expense', String(id), `Updated expense #${id}: ${existing.amount} -> ${expense.amount}`, now);
+    db.exec('COMMIT;');
+    return true;
+  } catch (err) {
+    db.exec('ROLLBACK;');
+    throw err;
+  }
+}
+
+export function deleteExpense(id: number): boolean {
+  const db = getDb();
+  const existing = db.prepare('SELECT * FROM expenses WHERE id = ?').get(id) as unknown as Expense | undefined;
+  if (!existing) throw new Error('খরচের রেকর্ড পাওয়া যায়নি।');
+
+  const now = new Date().toISOString();
+  db.exec('BEGIN TRANSACTION;');
+  try {
+    db.prepare('DELETE FROM expenses WHERE id = ?').run(id);
+    db.prepare('INSERT INTO audit_logs (user_action, entity_type, entity_id, details, timestamp) VALUES (?, ?, ?, ?, ?)')
+      .run('EXPENSE_DELETED', 'expense', String(id), `Deleted expense: ${existing.category} (${existing.amount} BDT, ${existing.payment_method})`, now);
+    db.exec('COMMIT;');
+    return true;
+  } catch (err) {
+    db.exec('ROLLBACK;');
+    throw err;
+  }
 }
 
 export function recordCashMovement(type: 'deposit' | 'withdrawal', amount: number, reason: string, adminUser = 'admin') {
@@ -1278,28 +1511,29 @@ export function getDashboardData(): DashboardStats {
     SELECT COUNT(*) as count FROM (
       SELECT m.id, COALESCE(SUM(b.remaining_qty), 0) as total_qty
       FROM medicines m
-      LEFT JOIN inventory_batches b ON m.id = b.medicine_id AND b.remaining_qty > 0 AND b.status = 'active' AND b.expiry_date >= date('now')
+      LEFT JOIN inventory_batches b ON m.id = b.medicine_id AND b.remaining_qty > 0 AND b.status = 'active' AND b.expiry_date >= ?
       WHERE m.active = 1
       GROUP BY m.id
       HAVING total_qty <= ?
     )
-  `).get(settings.low_stock_threshold) as { count: number }).count;
+  `).get(today, settings.low_stock_threshold) as { count: number }).count;
 
   // Near expiry batches (within expiry_warning_days)
+  const warnEndDate = getBangladeshDateOffset(settings.expiry_warning_days);
   const nearExpiryCount = (db.prepare(`
     SELECT COUNT(*) as count 
     FROM inventory_batches 
     WHERE remaining_qty > 0 AND status = 'active' 
-      AND expiry_date >= date('now')
-      AND expiry_date <= date('now', '+' || ? || ' days')
-  `).get(settings.expiry_warning_days) as { count: number }).count;
+      AND expiry_date >= ?
+      AND expiry_date <= ?
+  `).get(today, warnEndDate) as { count: number }).count;
 
   // Expired stock batches
   const expiredCount = (db.prepare(`
     SELECT COUNT(*) as count 
     FROM inventory_batches 
-    WHERE remaining_qty > 0 AND expiry_date < date('now')
-  `).get() as { count: number }).count;
+    WHERE remaining_qty > 0 AND expiry_date < ?
+  `).get(today) as { count: number }).count;
 
   // Customer receivables & Supplier payables
   const custReceivables = (db.prepare(`

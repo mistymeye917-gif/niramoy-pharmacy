@@ -52,10 +52,10 @@ export const ReturnsPage: React.FC<ReturnsPageProps> = ({
     setError('');
     setSuccess('');
     try {
-      const sales = await api.getSales(50, invoiceQuery.trim());
+      const sales = await api.getSales(200, invoiceQuery.trim());
       const found = sales.find(s => s.invoice_number.toUpperCase() === invoiceQuery.trim().toUpperCase()) || sales[0];
       if (!found) {
-        setError(`Invoice #${invoiceQuery} not found in database.`);
+        setError(lang === 'bn' ? `#${invoiceQuery} নম্বরের কোনো বিল পাওয়া যায়নি।` : `Invoice #${invoiceQuery} not found in database.`);
         setInvoice(null);
       } else {
         setInvoice(found);
@@ -75,19 +75,27 @@ export const ReturnsPage: React.FC<ReturnsPageProps> = ({
 
   const handleExecuteReturn = async () => {
     if (!invoice) return;
+    setError('');
+    setSuccess('');
     const itemsToReturn: ReturnItemInput[] = [];
 
     for (const item of invoice.items || []) {
       const state = returnItems[item.id];
+      const alreadyReturned = item.returned_qty || 0;
+      const maxReturnable = Math.max(0, item.quantity - alreadyReturned);
       if (state && state.qty > 0) {
-        if (state.qty > item.quantity) {
-          setError(`Cannot return more than sold quantity (${item.quantity} ${item.unit})`);
+        if (state.qty > maxReturnable) {
+          setError(
+            lang === 'bn'
+              ? `${item.brand_name}: সর্বোচ্চ ${maxReturnable} ${item.unit} ফেরত নেওয়া যাবে (বিক্রি ${item.quantity}, পূর্বে ফেরত ${alreadyReturned})।`
+              : `Cannot return more than remaining sold quantity (${maxReturnable} ${item.unit})`
+          );
           return;
         }
         itemsToReturn.push({
           sale_line_id: item.id,
           medicine_id: item.medicine_id,
-          batch_id: 1, // Allocated batch
+          batch_id: item.batch_id || 0,
           quantity_to_return: state.qty,
           unit: item.unit,
           multiplier: item.multiplier,
@@ -99,7 +107,7 @@ export const ReturnsPage: React.FC<ReturnsPageProps> = ({
     }
 
     if (itemsToReturn.length === 0) {
-      setError('Please select at least one item and quantity to return.');
+      setError(lang === 'bn' ? 'অন্তত একটি ওষুধের ফেরতের পরিমাণ লিখুন।' : 'Please select at least one item and quantity to return.');
       return;
     }
 
@@ -111,10 +119,19 @@ export const ReturnsPage: React.FC<ReturnsPageProps> = ({
         refund_method: refundMethod,
         reason: returnReason
       });
-      setSuccess(`Return for invoice #${invoice.invoice_number} processed successfully!`);
-      // Reload invoice
+      setSuccess(
+        lang === 'bn'
+          ? `বিল #${invoice.invoice_number}-এর রিটার্ন সফলভাবে সম্পন্ন হয়েছে ও সঠিক ব্যাচে স্টক সমন্বয় হয়েছে!`
+          : `Return for invoice #${invoice.invoice_number} processed successfully!`
+      );
+      // Reload invoice & reset return qty inputs
       const updated = await api.getSaleById(invoice.id);
       setInvoice(updated);
+      const resetMap: any = {};
+      for (const item of updated.items || []) {
+        resetMap[item.id] = { qty: 0, condition: 'saleable' };
+      }
+      setReturnItems(resetMap);
     } catch (err: any) {
       setError(err.message || 'Failed to process return');
     } finally {
@@ -244,6 +261,8 @@ export const ReturnsPage: React.FC<ReturnsPageProps> = ({
                 <tbody className="divide-y divide-slate-100">
                   {(invoice.items || []).map((item) => {
                     const state = returnItems[item.id] || { qty: 0, condition: 'saleable' };
+                    const alreadyReturned = item.returned_qty || 0;
+                    const maxReturnable = Math.max(0, item.quantity - alreadyReturned);
                     const refundVal = Math.round(state.qty * item.unit_price * 100) / 100;
 
                     return (
@@ -253,23 +272,29 @@ export const ReturnsPage: React.FC<ReturnsPageProps> = ({
                           <div className="text-[11px] text-slate-500">{item.generic_name}</div>
                         </td>
                         <td className="p-3 text-center font-semibold text-slate-700">
-                          {item.quantity} {item.unit}
+                          <div>{item.quantity} {item.unit}</div>
+                          {alreadyReturned > 0 && (
+                            <div className="text-[10px] text-amber-700 font-medium">
+                              {lang === 'bn' ? `পূর্বে ফেরত: ${alreadyReturned}` : `Returned: ${alreadyReturned}`}
+                            </div>
+                          )}
                         </td>
                         <td className="p-3 text-right tabular-nums">{formatBDT(item.unit_price, false)}</td>
                         <td className="p-3 text-center">
                           <input
                             type="number"
                             min="0"
-                            max={item.quantity}
+                            max={maxReturnable}
+                            disabled={maxReturnable <= 0 || invoice.status === 'cancelled'}
                             value={state.qty}
                             onChange={(e) => {
-                              const val = Math.max(0, Math.min(item.quantity, parseInt(e.target.value, 10) || 0));
+                              const val = Math.max(0, Math.min(maxReturnable, parseInt(e.target.value, 10) || 0));
                               setReturnItems({
                                 ...returnItems,
                                 [item.id]: { ...state, qty: val }
                               });
                             }}
-                            className="w-16 px-2 py-1 border border-slate-300 rounded text-center font-bold tabular-nums"
+                            className="w-16 px-2 py-1 border border-slate-300 rounded text-center font-bold tabular-nums disabled:bg-slate-100 disabled:text-slate-400"
                           />
                         </td>
                         <td className="p-3">

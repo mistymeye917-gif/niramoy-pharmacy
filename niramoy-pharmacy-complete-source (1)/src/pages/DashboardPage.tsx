@@ -87,7 +87,9 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
             {t('nav_dashboard')}
           </h2>
           <p className="text-xs text-slate-500 mt-0.5">
-            Real-time financial and inventory telemetry from local SQLite database.
+            {lang === 'bn'
+              ? 'আজকের বেচাকেনা, ক্যাশ ড্রয়ার, বাকি ও ওষুধের স্টকের লাইভ হিসাব।'
+              : "Today's sales, cash drawer, receivables, and live inventory overview."}
           </p>
         </div>
         <div className="flex items-center gap-2.5">
@@ -190,22 +192,31 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
           </div>
         </div>
 
-        {/* Near Expiry Alert */}
+        {/* Near Expiry & Expired Alert */}
         <div
           onClick={() => onNavigate('reports')}
           className={`p-4 rounded-xl border transition-all cursor-pointer ${
-            stats.near_expiry_count > 0 ? 'bg-amber-50/60 border-amber-200 hover:border-amber-300' : 'bg-white border-slate-200'
+            stats.expired_count > 0
+              ? 'bg-rose-50/70 border-rose-200 hover:border-rose-300'
+              : stats.near_expiry_count > 0
+              ? 'bg-amber-50/60 border-amber-200 hover:border-amber-300'
+              : 'bg-white border-slate-200'
           }`}
         >
           <div className="flex items-center justify-between">
             <div className="text-xs font-semibold text-slate-700">{t('dash_near_expiry')}</div>
-            <Clock className={`w-4 h-4 ${stats.near_expiry_count > 0 ? 'text-amber-600' : 'text-slate-400'}`} />
+            <Clock className={`w-4 h-4 ${stats.expired_count > 0 ? 'text-rose-600' : stats.near_expiry_count > 0 ? 'text-amber-600' : 'text-slate-400'}`} />
           </div>
-          <div className="text-xl font-bold text-slate-900 mt-1 tabular-nums">
-            {stats.near_expiry_count} <span className="text-xs font-normal text-slate-500">batches</span>
+          <div className="text-xl font-bold text-slate-900 mt-1 tabular-nums flex items-baseline gap-2">
+            <span>{stats.near_expiry_count} <span className="text-xs font-normal text-slate-500">{lang === 'bn' ? 'কাছাকাছি' : 'near'}</span></span>
+            {stats.expired_count > 0 && (
+              <span className="text-xs font-bold text-rose-700">
+                · {stats.expired_count} {lang === 'bn' ? 'মেয়াদ শেষ' : 'expired'}
+              </span>
+            )}
           </div>
           <div className="text-[11px] text-slate-500 mt-1 flex items-center justify-between">
-            <span>Within next {settings.expiry_warning_days} days</span>
+            <span>{lang === 'bn' ? `আগামী ${settings.expiry_warning_days} দিনের মধ্যে` : `Within next ${settings.expiry_warning_days} days`}</span>
             <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
           </div>
         </div>

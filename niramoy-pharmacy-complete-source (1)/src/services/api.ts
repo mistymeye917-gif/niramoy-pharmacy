@@ -91,6 +91,18 @@ export const api = {
     });
     return handleResponse(res);
   },
+  async deleteMedicine(id: number): Promise<{ success: boolean }> {
+    const res = await fetch(`${API_BASE}/medicines/${id}`, { method: 'DELETE' });
+    return handleResponse(res);
+  },
+  async setMedicineActive(id: number, active: boolean): Promise<{ success: boolean }> {
+    const res = await fetch(`${API_BASE}/medicines/${id}/active`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ active })
+    });
+    return handleResponse(res);
+  },
   async importExcelMedicines(fileBase64: string, mode: 'preview' | 'execute') {
     const res = await fetch(`${API_BASE}/medicines/import-excel`, {
       method: 'POST',
@@ -122,6 +134,18 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(batch)
     });
+    return handleResponse(res);
+  },
+  async updateBatch(id: number, updates: { batch_number: string; expiry_date: string; purchase_cost: number; remaining_qty: number }): Promise<{ success: boolean }> {
+    const res = await fetch(`${API_BASE}/batches/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates)
+    });
+    return handleResponse(res);
+  },
+  async deleteBatch(id: number): Promise<{ success: boolean }> {
+    const res = await fetch(`${API_BASE}/batches/${id}`, { method: 'DELETE' });
     return handleResponse(res);
   },
 
@@ -224,6 +248,10 @@ export const api = {
     });
     return handleResponse(res);
   },
+  async deleteSupplier(id: number): Promise<{ success: boolean }> {
+    const res = await fetch(`${API_BASE}/suppliers/${id}`, { method: 'DELETE' });
+    return handleResponse(res);
+  },
   async recordSupplierPayment(data: { supplier_id: number; purchase_id?: number; amount: number; payment_method: string; reference?: string; notes?: string }) {
     const res = await fetch(`${API_BASE}/suppliers/payments`, {
       method: 'POST',
@@ -247,6 +275,18 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(expense)
     });
+    return handleResponse(res);
+  },
+  async updateExpense(id: number, expense: Partial<Expense>): Promise<{ success: boolean }> {
+    const res = await fetch(`${API_BASE}/expenses/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(expense)
+    });
+    return handleResponse(res);
+  },
+  async deleteExpense(id: number): Promise<{ success: boolean }> {
+    const res = await fetch(`${API_BASE}/expenses/${id}`, { method: 'DELETE' });
     return handleResponse(res);
   },
   async recordCashMovement(type: 'deposit' | 'withdrawal', amount: number, reason: string) {

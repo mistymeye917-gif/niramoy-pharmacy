@@ -21,6 +21,7 @@ import {
 interface ReportsPageProps {
   lang: Language;
   settings: PharmacySettings;
+  onReprintReceipt?: (invoice: SaleInvoice) => void;
 }
 
 type ReportType = 
@@ -35,7 +36,8 @@ type ReportType =
 
 export const ReportsPage: React.FC<ReportsPageProps> = ({
   lang,
-  settings
+  settings,
+  onReprintReceipt
 }) => {
   const [reportType, setReportType] = useState<ReportType>('daily_sales');
   const [sales, setSales] = useState<SaleInvoice[]>([]);
@@ -268,6 +270,7 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
                 <th className="p-3 text-right">Net Payable</th>
                 <th className="p-3 text-right">Paid</th>
                 <th className="p-3 text-center">Status</th>
+                {onReprintReceipt && <th className="p-3 text-center">রসিদ</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -287,6 +290,19 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
                       {s.status}
                     </span>
                   </td>
+                  {onReprintReceipt && (
+                    <td className="p-3 text-center">
+                      <button
+                        type="button"
+                        onClick={() => onReprintReceipt(s)}
+                        className="inline-flex items-center gap-1 px-2 py-1 rounded bg-slate-100 hover:bg-emerald-50 text-slate-700 hover:text-emerald-700 text-[11px] font-semibold cursor-pointer transition-colors"
+                        title={lang === 'bn' ? 'রসিদ পুনরায় প্রিন্ট করুন' : 'Reprint receipt'}
+                      >
+                        <Printer className="w-3 h-3" />
+                        <span>{lang === 'bn' ? 'প্রিন্ট' : 'Print'}</span>
+                      </button>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
