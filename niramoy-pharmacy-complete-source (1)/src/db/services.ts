@@ -997,19 +997,88 @@ export function recordCustomerPayment(data: {
 }) {
   const db = getDb();
   const now = new Date().toISOString();
+  const paymentDate = getBangladeshToday();
+
+  const cust = db.prepare('SELECT * FROM customers WHERE id = ?').get(data.customer_id) as unknown as Customer | undefined;
+  if (!cust) {
+    throw new Error('গ্রাহক পাওয়া যায়নি।');
+  }
+  const amount = Number(data.amount || 0);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw new Error('সঠিক টাকার পরিমাণ দিন।');
+  }
+
+  const previousBalance = Number((Number(cust.balance || 0)).toFixed(2));
+  const remainingBalance = Math.max(0, Number((previousBalance - amount).toFixed(2)));
+
   db.exec('BEGIN TRANSACTION;');
   try {
-    db.prepare('UPDATE customers SET balance = MAX(0, balance - ?) WHERE id = ?').run(data.amount, data.customer_id);
+    db.prepare('UPDATE customers SET balance = ? WHERE id = ?').run(remainingBalance, data.customer_id);
     db.prepare(`
-      INSERT INTO customer_payments (customer_id, payment_date, amount, payment_method, reference, notes, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(data.customer_id, getBangladeshToday(), data.amount, data.payment_method, data.reference || '', data.notes || '', now);
+      INSERT INTO customer_payments (receipt_number, customer_id, payment_date, amount, previous_balance, remaining_balance, payment_method, reference, notes, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run('', data.customer_id, paymentDate, amount, previousBalance, remainingBalance, data.payment_method, data.reference || '', data.notes || '', now);
+
+    const paymentId = (db.prepare('SELECT last_insert_rowid() as id').get() as { id: number }).id;
+    const receiptNumber = `PAY-${String(paymentId).padStart(5, '0')}`;
+    db.prepare('UPDATE customer_payments SET receipt_number = ? WHERE id = ?').run(receiptNumber, paymentId);
+
+    db.prepare('INSERT INTO audit_logs (user_action, entity_type, entity_id, details, timestamp) VALUES (?, ?, ?, ?, ?)')
+      .run(
+        'CUSTOMER_PAYMENT',
+        'customer',
+        String(data.customer_id),
+        `Received ${amount.toFixed(2)} via ${data.payment_method} from ${cust.name} (${receiptNumber}). Prev: ${previousBalance.toFixed(2)}, Rem: ${remainingBalance.toFixed(2)}`,
+        now
+      );
+
     db.exec('COMMIT;');
-    return true;
+    return {
+      id: paymentId,
+      receipt_number: receiptNumber,
+      customer_id: cust.id,
+      customer_name: cust.name,
+      customer_phone: cust.phone,
+      customer_address: cust.address || '',
+      payment_date: paymentDate,
+      amount,
+      previous_balance: previousBalance,
+      remaining_balance: remainingBalance,
+      payment_method: data.payment_method,
+      reference: data.reference || '',
+      notes: data.notes || '',
+      created_at: now
+    };
   } catch (err) {
     db.exec('ROLLBACK;');
     throw err;
   }
+}
+
+export function getCustomerPayments(customerId: number) {
+  const db = getDb();
+  return db.prepare(`
+    SELECT
+      cp.id,
+      COALESCE(NULLIF(cp.receipt_number, ''), 'PAY-' || PRINTF('%05d', cp.id)) as receipt_number,
+      cp.customer_id,
+      c.name as customer_name,
+      c.phone as customer_phone,
+      COALESCE(c.address, '') as customer_address,
+      cp.payment_date,
+      cp.amount,
+      cp.previous_balance,
+      cp.remaining_balance,
+      cp.payment_method,
+      cp.reference,
+      cp.notes,
+      cp.created_at
+    FROM customer_payments cp
+    JOIN customers c ON cp.customer_id = c.id
+    WHERE cp.customer_id = ?
+    ORDER BY cp.id DESC
+    LIMIT 100
+  `).all(customerId);
 }
 
 export function getSuppliers(): Supplier[] {

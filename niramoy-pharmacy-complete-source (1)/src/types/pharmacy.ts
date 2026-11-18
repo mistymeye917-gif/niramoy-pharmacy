@@ -219,15 +219,35 @@ export interface SalePaymentRecord {
 
 export interface CustomerPayment {
   id: number;
+  receipt_number?: string;
   customer_id: number;
   customer_name?: string;
   sale_id?: number | null;
   payment_date: string;
   amount: number;
+  previous_balance?: number;
+  remaining_balance?: number;
   payment_method: PaymentMethod;
   reference?: string;
   notes?: string;
   created_at?: string;
+}
+
+export interface CustomerPaymentReceipt {
+  id: number;
+  receipt_number: string;
+  customer_id: number;
+  customer_name: string;
+  customer_phone: string;
+  customer_address?: string;
+  payment_date: string;
+  amount: number;
+  previous_balance: number;
+  remaining_balance: number;
+  payment_method: 'cash' | 'bkash' | 'nagad' | 'rocket' | 'card';
+  reference?: string;
+  notes?: string;
+  created_at: string;
 }
 
 export interface SupplierPayment {

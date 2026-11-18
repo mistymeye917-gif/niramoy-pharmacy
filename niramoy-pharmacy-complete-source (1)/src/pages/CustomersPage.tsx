@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Customer, Language, PharmacySettings } from '../types/pharmacy';
+import { Customer, CustomerPaymentReceipt, Language, PharmacySettings } from '../types/pharmacy';
 import { getTranslation } from '../i18n/translations';
 import { api } from '../services/api';
-import { formatBDT } from '../services/formatters';
+import { formatBDT, formatDateTime } from '../services/formatters';
+import { PaymentReceiptModal } from '../components/PaymentReceiptModal';
 import {
   Users,
   Plus,
@@ -17,7 +18,9 @@ import {
   Eye,
   Edit3,
   Trash2,
-  UserCheck
+  UserCheck,
+  Printer,
+  Receipt
 } from 'lucide-react';
 
 interface CustomersPageProps {
@@ -88,6 +91,11 @@ export const CustomersPage: React.FC<CustomersPageProps> = ({
 
   // View Customer Profile & Photo/NID Modal
   const [viewCust, setViewCust] = useState<Customer | null>(null);
+  const [viewCustPayments, setViewCustPayments] = useState<CustomerPaymentReceipt[]>([]);
+  const [loadingViewPayments, setLoadingViewPayments] = useState(false);
+
+  // Payment Receipt Print Preview Modal
+  const [activePaymentReceipt, setActivePaymentReceipt] = useState<CustomerPaymentReceipt | null>(null);
 
   // Delete Customer Confirmation Modal
   const [deleteCust, setDeleteCust] = useState<Customer | null>(null);
@@ -101,6 +109,7 @@ export const CustomersPage: React.FC<CustomersPageProps> = ({
   const [payMethod, setPayMethod] = useState<'cash' | 'bkash' | 'nagad' | 'rocket' | 'card'>('cash');
   const [payRef, setPayRef] = useState('');
   const [payError, setPayError] = useState('');
+  const [isRecordingPay, setIsRecordingPay] = useState(false);
   const [message, setMessage] = useState('');
 
   const t = (key: any) => getTranslation(lang, key);
@@ -129,6 +138,20 @@ export const CustomersPage: React.FC<CustomersPageProps> = ({
       setEditingCustomer(emptyCustomerForm());
     }
     setShowAddModal(true);
+  };
+
+  const handleOpenViewModal = async (cust: Customer) => {
+    setViewCust(cust);
+    setViewCustPayments([]);
+    setLoadingViewPayments(true);
+    try {
+      const history = await api.getCustomerPayments(cust.id);
+      setViewCustPayments(history);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoadingViewPayments(false);
+    }
   };
 
   const handleImageUpload = async (
@@ -191,8 +214,9 @@ export const CustomersPage: React.FC<CustomersPageProps> = ({
       return;
     }
     setPayError('');
+    setIsRecordingPay(true);
     try {
-      await api.recordCustomerPayment({
+      const res = await api.recordCustomerPayment({
         customer_id: selectedCust.id,
         amount: payAmount,
         payment_method: payMethod,
@@ -206,8 +230,13 @@ export const CustomersPage: React.FC<CustomersPageProps> = ({
           : `Payment of ${formatBDT(payAmount)} received from ${selectedCust.name}`
       );
       loadCustomers();
+      if (res.receipt) {
+        setActivePaymentReceipt(res.receipt);
+      }
     } catch (err: any) {
       setPayError(err.message || 'Payment recording failed');
+    } finally {
+      setIsRecordingPay(false);
     }
   };
 
@@ -321,7 +350,7 @@ export const CustomersPage: React.FC<CustomersPageProps> = ({
                         {c.photo_data ? (
                           <button
                             type="button"
-                            onClick={() => setViewCust(c)}
+                            onClick={() => handleOpenViewModal(c)}
                             className="w-9 h-9 rounded-full overflow-hidden border border-slate-200 shrink-0 cursor-pointer hover:ring-2 hover:ring-emerald-500"
                             title={lang === 'bn' ? 'ছবি বড় করে দেখুন' : 'View Photo'}
                           >
@@ -351,7 +380,7 @@ export const CustomersPage: React.FC<CustomersPageProps> = ({
                         {(c.nid_photo_data || c.nid_back_photo_data) && (
                           <button
                             type="button"
-                            onClick={() => setViewCust(c)}
+                            onClick={() => handleOpenViewModal(c)}
                             className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-semibold cursor-pointer hover:bg-emerald-100"
                           >
                             <UserCheck className="w-3 h-3" />
@@ -374,7 +403,7 @@ export const CustomersPage: React.FC<CustomersPageProps> = ({
                       <div className="flex items-center justify-center gap-1.5">
                         <button
                           type="button"
-                          onClick={() => setViewCust(c)}
+                          onClick={() => handleOpenViewModal(c)}
                           className="p-1.5 rounded border border-slate-200 text-slate-600 hover:bg-slate-100 hover:text-slate-900 cursor-pointer"
                           title={lang === 'bn' ? 'ছবি ও NID দেখুন' : 'View Profile & NID'}
                         >
@@ -756,6 +785,60 @@ export const CustomersPage: React.FC<CustomersPageProps> = ({
                 </div>
               </div>
 
+              {/* Customer Due Payment History & Receipt Reprint */}
+              <div className="space-y-2 pt-2 border-t border-slate-200">
+                <div className="font-bold text-slate-800 flex items-center gap-1.5">
+                  <Receipt className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>{lang === 'bn' ? 'বাকি আদায়ের ইতিহাস ও রসিদ' : 'Payment History & Receipts'}</span>
+                </div>
+                {loadingViewPayments ? (
+                  <div className="p-3 text-center text-slate-400 bg-slate-50 rounded-lg border border-slate-200">
+                    {t('loading')}
+                  </div>
+                ) : viewCustPayments.length === 0 ? (
+                  <div className="p-3 text-center text-slate-400 bg-slate-50 rounded-lg border border-slate-200">
+                    {lang === 'bn' ? 'এখনো কোনো বাকি আদায়ের রেকর্ড নেই।' : 'No payment records yet.'}
+                  </div>
+                ) : (
+                  <div className="border border-slate-200 rounded-lg overflow-hidden">
+                    <table className="w-full border-collapse text-[11px]">
+                      <thead>
+                        <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-semibold">
+                          <th className="p-2 text-left">{lang === 'bn' ? 'রসিদ নং' : 'Receipt #'}</th>
+                          <th className="p-2 text-left">{lang === 'bn' ? 'তারিখ' : 'Date'}</th>
+                          <th className="p-2 text-right">{lang === 'bn' ? 'পূর্বের বাকি' : 'Prev Due'}</th>
+                          <th className="p-2 text-right">{lang === 'bn' ? 'পরিশোধ' : 'Paid'}</th>
+                          <th className="p-2 text-right">{lang === 'bn' ? 'অবশিষ্ট বাকি' : 'Remaining'}</th>
+                          <th className="p-2 text-center">{lang === 'bn' ? 'রসিদ' : 'Receipt'}</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {viewCustPayments.map((p) => (
+                          <tr key={p.id} className="hover:bg-slate-50">
+                            <td className="p-2 font-mono font-semibold text-slate-800">{p.receipt_number}</td>
+                            <td className="p-2 text-slate-600">{formatDateTime(p.created_at || p.payment_date, lang)}</td>
+                            <td className="p-2 text-right tabular-nums text-slate-600">{formatBDT(p.previous_balance)}</td>
+                            <td className="p-2 text-right tabular-nums font-bold text-emerald-700">{formatBDT(p.amount)}</td>
+                            <td className="p-2 text-right tabular-nums font-bold text-rose-700">{formatBDT(p.remaining_balance)}</td>
+                            <td className="p-2 text-center">
+                              <button
+                                type="button"
+                                onClick={() => setActivePaymentReceipt(p)}
+                                className="inline-flex items-center gap-1 px-2 py-1 rounded bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 font-semibold cursor-pointer"
+                                title={lang === 'bn' ? 'রসিদ প্রিন্ট করুন' : 'Print Payment Receipt'}
+                              >
+                                <Printer className="w-3 h-3" />
+                                <span>{lang === 'bn' ? 'প্রিন্ট' : 'Print'}</span>
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
               <div className="flex justify-end gap-2 pt-2 border-t border-slate-200">
                 <button
                   type="button"
@@ -787,7 +870,7 @@ export const CustomersPage: React.FC<CustomersPageProps> = ({
           <div className="w-full max-w-md bg-white rounded-xl shadow-2xl border border-slate-200 overflow-hidden">
             <div className="px-5 py-3.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
               <h3 className="text-sm font-bold text-slate-800">
-                Receive Payment — {selectedCust.name}
+                {lang === 'bn' ? `বাকি টাকা আদায় — ${selectedCust.name}` : `Receive Payment — ${selectedCust.name}`}
               </h3>
               <button onClick={() => setShowPayModal(false)} className="text-slate-400 hover:text-slate-700 cursor-pointer">
                 <X className="w-4 h-4" />
@@ -799,12 +882,22 @@ export const CustomersPage: React.FC<CustomersPageProps> = ({
                   {payError}
                 </div>
               )}
-              <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 flex justify-between items-center">
-                <span className="text-slate-600">Total Outstanding Balance:</span>
-                <span className="text-sm font-bold text-rose-700 tabular-nums">{formatBDT(selectedCust.balance)}</span>
+              <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 space-y-1.5">
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-600">{lang === 'bn' ? 'বর্তমান মোট বাকি:' : 'Total Outstanding Balance:'}</span>
+                  <span className="text-sm font-bold text-rose-700 tabular-nums">{formatBDT(selectedCust.balance)}</span>
+                </div>
+                <div className="flex justify-between items-center pt-1.5 border-t border-slate-200">
+                  <span className="text-slate-600">{lang === 'bn' ? 'পরিশোধের পর বাকি থাকবে:' : 'Remaining After Payment:'}</span>
+                  <span className={`text-sm font-bold tabular-nums ${Math.max(0, selectedCust.balance - (payAmount || 0)) > 0 ? 'text-amber-700' : 'text-emerald-700'}`}>
+                    {formatBDT(Math.max(0, selectedCust.balance - (payAmount || 0)))}
+                  </span>
+                </div>
               </div>
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">Repayment Amount (BDT) *</label>
+                <label className="block font-semibold text-slate-700 mb-1">
+                  {lang === 'bn' ? 'আজকের পরিশোধিত টাকা (৳) *' : 'Repayment Amount (BDT) *'}
+                </label>
                 <input
                   type="number"
                   step="0.01"
@@ -815,26 +908,30 @@ export const CustomersPage: React.FC<CustomersPageProps> = ({
                 />
               </div>
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">Payment Method</label>
+                <label className="block font-semibold text-slate-700 mb-1">
+                  {lang === 'bn' ? 'পরিশোধের মাধ্যম' : 'Payment Method'}
+                </label>
                 <select
                   value={payMethod}
                   onChange={(e) => setPayMethod(e.target.value as any)}
                   className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs"
                 >
-                  <option value="cash">Physical Cash</option>
-                  <option value="bkash">bKash</option>
-                  <option value="nagad">Nagad</option>
-                  <option value="rocket">Rocket</option>
-                  <option value="card">Bank Card</option>
+                  <option value="cash">{lang === 'bn' ? 'নগদ ক্যাশ' : 'Physical Cash'}</option>
+                  <option value="bkash">{lang === 'bn' ? 'বিকাশ (bKash)' : 'bKash'}</option>
+                  <option value="nagad">{lang === 'bn' ? 'নগদ (Nagad)' : 'Nagad'}</option>
+                  <option value="rocket">{lang === 'bn' ? 'রকেট (Rocket)' : 'Rocket'}</option>
+                  <option value="card">{lang === 'bn' ? 'ব্যাংক কার্ড' : 'Bank Card'}</option>
                 </select>
               </div>
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">Transaction Ref / Note</label>
+                <label className="block font-semibold text-slate-700 mb-1">
+                  {lang === 'bn' ? 'রেফারেন্স / ট্রানজেকশন নং (ঐচ্ছিক)' : 'Transaction Ref / Note'}
+                </label>
                 <input
                   type="text"
                   value={payRef}
                   onChange={(e) => setPayRef(e.target.value)}
-                  placeholder="e.g. bKash TrxID or Cash Receipt"
+                  placeholder={lang === 'bn' ? 'যেমন: বিকাশ TrxID বা রসিদ নোট' : 'e.g. bKash TrxID or Cash Receipt'}
                   className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs font-mono"
                 />
               </div>
@@ -848,9 +945,15 @@ export const CustomersPage: React.FC<CustomersPageProps> = ({
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-semibold shadow-xs cursor-pointer"
+                  disabled={isRecordingPay}
+                  className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-semibold shadow-xs cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
                 >
-                  Confirm & Deduct Balance
+                  <Printer className="w-3.5 h-3.5" />
+                  <span>
+                    {isRecordingPay
+                      ? t('loading')
+                      : (lang === 'bn' ? 'জমা দিন ও রসিদ দেখুন' : 'Confirm & Print Receipt')}
+                  </span>
                 </button>
               </div>
             </form>
@@ -927,6 +1030,14 @@ export const CustomersPage: React.FC<CustomersPageProps> = ({
           </div>
         </div>
       )}
+
+      {/* Customer Due Payment Receipt Print Preview Modal */}
+      <PaymentReceiptModal
+        receipt={activePaymentReceipt}
+        settings={settings}
+        lang={lang}
+        onClose={() => setActivePaymentReceipt(null)}
+      />
     </div>
   );
 };

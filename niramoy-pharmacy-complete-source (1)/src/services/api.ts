@@ -4,6 +4,7 @@ import {
   SaleInvoice,
   PurchaseInvoice,
   Customer,
+  CustomerPaymentReceipt,
   Supplier,
   Expense,
   PharmacySettings,
@@ -197,13 +198,17 @@ export const api = {
     });
     return handleResponse(res);
   },
-  async recordCustomerPayment(data: { customer_id: number; amount: number; payment_method: string; reference?: string; notes?: string }) {
+  async recordCustomerPayment(data: { customer_id: number; amount: number; payment_method: string; reference?: string; notes?: string }): Promise<{ success: boolean; receipt: CustomerPaymentReceipt }> {
     const res = await fetch(`${API_BASE}/customers/payments`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data)
     });
     return handleResponse(res);
+  },
+  async getCustomerPayments(customerId: number): Promise<CustomerPaymentReceipt[]> {
+    const res = await fetch(`${API_BASE}/customers/${customerId}/payments`);
+    return handleResponse<CustomerPaymentReceipt[]>(res);
   },
 
   // Suppliers

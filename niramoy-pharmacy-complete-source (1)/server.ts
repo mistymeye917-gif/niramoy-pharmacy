@@ -390,8 +390,20 @@ app.delete('/api/customers/:id', (req: Request, res: Response) => {
 
 app.post('/api/customers/payments', (req: Request, res: Response) => {
   try {
-    services.recordCustomerPayment(req.body);
-    res.json({ success: true });
+    const receipt = services.recordCustomerPayment(req.body);
+    res.json({ success: true, receipt });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.get('/api/customers/:id/payments', (req: Request, res: Response) => {
+  try {
+    const id = parseInt(String(req.params.id), 10);
+    if (!Number.isFinite(id) || id <= 0) {
+      return res.status(400).json({ error: 'Invalid customer ID.' });
+    }
+    res.json(services.getCustomerPayments(id));
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

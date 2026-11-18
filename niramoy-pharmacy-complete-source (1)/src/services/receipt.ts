@@ -1,4 +1,4 @@
-import { SaleInvoice, PharmacySettings, Language } from '../types/pharmacy';
+import { SaleInvoice, CustomerPaymentReceipt, PharmacySettings, Language } from '../types/pharmacy';
 import { formatBDT, formatDateTime } from './formatters.ts';
 
 export function generateReceiptHtml(
@@ -283,6 +283,263 @@ export function generateReceiptHtml(
         <div class="font-bold">${labels.thanks}</div>
         <div style="margin-top: 3px;">${labels.notice}</div>
         <div style="margin-top: 4px; font-family: monospace; font-size: 8px;">NIRAMOY POS · OFFLINE VERIFIED</div>
+      </div>
+    </body>
+    </html>
+  `;
+}
+
+export function generatePaymentReceiptHtml(
+  receipt: CustomerPaymentReceipt,
+  currentSettings: PharmacySettings,
+  layout: 'full' | 'compact' = 'full',
+  language: Language = 'bn'
+): string {
+  const isBn = language === 'bn';
+  const methodLabels: Record<string, string> = isBn
+    ? {
+        cash: 'নগদ ক্যাশ',
+        bkash: 'বিকাশ',
+        nagad: 'নগদ',
+        rocket: 'রকেট',
+        card: 'ব্যাংক কার্ড'
+      }
+    : {
+        cash: 'Physical Cash',
+        bkash: 'bKash',
+        nagad: 'Nagad',
+        rocket: 'Rocket',
+        card: 'Bank Card'
+      };
+
+  const labels = isBn
+    ? {
+        title: 'বাকি আদায়ের রসিদ',
+        receiptNo: 'রসিদ নং',
+        date: 'তারিখ ও সময়',
+        customer: 'গ্রাহকের নাম',
+        phone: 'মোবাইল',
+        address: 'ঠিকানা',
+        prevDue: 'পূর্বের মোট বাকি',
+        paidNow: 'আজকের পরিশোধিত টাকা',
+        remDue: 'বর্তমান অবশিষ্ট বাকি',
+        settled: 'সম্পূর্ণ পরিশোধিত',
+        method: 'পরিশোধ মাধ্যম',
+        ref: 'রেফারেন্স / ট্রানজেকশন',
+        notes: 'নোট',
+        thanks: 'বকেয়া পরিশোধ করার জন্য ধন্যবাদ। সুস্থ থাকুন।',
+        sign: 'স্বাক্ষর (ক্যাশিয়ার)'
+      }
+    : {
+        title: 'DUE PAYMENT RECEIPT',
+        receiptNo: 'Receipt #',
+        date: 'Date & Time',
+        customer: 'Customer Name',
+        phone: 'Phone',
+        address: 'Address',
+        prevDue: 'Previous Due Balance',
+        paidNow: 'Paid Amount',
+        remDue: 'Remaining Due Balance',
+        settled: 'Fully Settled',
+        method: 'Payment Method',
+        ref: 'Reference / TrxID',
+        notes: 'Notes',
+        thanks: 'Thank you for your payment. Get well soon!',
+        sign: 'Authorized Signature'
+      };
+
+  const methodText = methodLabels[receipt.payment_method] || receipt.payment_method.toUpperCase();
+  const dateDisplay = formatDateTime(receipt.created_at || receipt.payment_date, language);
+
+  if (layout === 'compact') {
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <style>
+          @page { size: 80mm auto; margin: 3mm; }
+          body { font-family: 'Hind Siliguri', -apple-system, sans-serif; font-size: 11px; color: #000; width: 72mm; margin: 0 auto; line-height: 1.3; }
+          .center { text-align: center; }
+          .bold { font-weight: bold; }
+          .divider { border-top: 1px dashed #000; margin: 5px 0; }
+          table { width: 100%; border-collapse: collapse; font-size: 11px; }
+          td { padding: 3px 0; }
+          .right { text-align: right; }
+        </style>
+      </head>
+      <body>
+        <div class="center">
+          <div class="bold" style="font-size: 14px;">${currentSettings.pharmacy_name}</div>
+          <div style="font-size: 10px;">${currentSettings.phone_number}</div>
+          <div class="divider"></div>
+          <div class="bold" style="font-size: 12px;">${labels.title}</div>
+          <div>${labels.receiptNo}: <span class="bold">${receipt.receipt_number}</span></div>
+          <div style="font-size: 10px;">${dateDisplay}</div>
+        </div>
+        <div class="divider"></div>
+        <table>
+          <tr><td>${labels.customer}:</td><td class="right bold">${receipt.customer_name}</td></tr>
+          <tr><td>${labels.phone}:</td><td class="right">${receipt.customer_phone}</td></tr>
+        </table>
+        <div class="divider"></div>
+        <table>
+          <tr>
+            <td>${labels.prevDue}:</td>
+            <td class="right">${formatBDT(receipt.previous_balance)}</td>
+          </tr>
+          <tr class="bold" style="font-size: 12px;">
+            <td>${labels.paidNow}:</td>
+            <td class="right">-${formatBDT(receipt.amount)}</td>
+          </tr>
+          <tr class="bold" style="font-size: 13px; border-top: 1px solid #000;">
+            <td style="padding-top: 4px;">${labels.remDue}:</td>
+            <td class="right" style="padding-top: 4px;">${formatBDT(receipt.remaining_balance)}</td>
+          </tr>
+        </table>
+        <div class="divider"></div>
+        <div style="font-size: 10px;">
+          <div>${labels.method}: <span class="bold">${methodText}</span></div>
+          ${receipt.reference ? `<div>${labels.ref}: ${receipt.reference}</div>` : ''}
+        </div>
+        <div class="divider"></div>
+        <div class="center" style="font-size: 9px; margin-top: 4px;">${labels.thanks}</div>
+      </body>
+      </html>
+    `;
+  }
+
+  return `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <title>${currentSettings.pharmacy_name} - ${receipt.receipt_number}</title>
+      <style>
+        @page { size: auto; margin: 6mm; }
+        body {
+          font-family: 'Hind Siliguri', 'Segoe UI', Tahoma, sans-serif;
+          font-size: 12px;
+          color: #1e293b;
+          max-width: 80mm;
+          margin: 0 auto;
+          line-height: 1.4;
+          padding: 4px;
+        }
+        .header { text-align: center; margin-bottom: 6px; }
+        .logo { max-height: 48px; margin-bottom: 4px; object-fit: contain; }
+        .pharmacy-title { font-size: 16px; font-weight: 700; color: #0f172a; }
+        .pharmacy-sub { font-size: 11px; color: #475569; }
+        .badge {
+          display: inline-block;
+          background: #ecfdf5;
+          color: #065f46;
+          border: 1px solid #a7f3d0;
+          font-weight: 700;
+          font-size: 11px;
+          padding: 2px 10px;
+          border-radius: 999px;
+          margin-top: 4px;
+        }
+        .divider { border-top: 1px dashed #94a3b8; margin: 8px 0; }
+        .meta-row { display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 3px; gap: 8px; }
+        .ledger-box {
+          background: #f8fafc;
+          border: 1px solid #cbd5e1;
+          border-radius: 6px;
+          padding: 8px;
+          margin: 8px 0;
+        }
+        table { width: 100%; border-collapse: collapse; font-size: 12px; }
+        td { padding: 4px 0; }
+        .text-right { text-align: right; }
+        .font-bold { font-weight: 700; }
+        .footer { text-align: center; font-size: 10px; color: #64748b; margin-top: 12px; }
+        .sign-line {
+          margin-top: 22px;
+          display: flex;
+          justify-content: flex-end;
+        }
+        .sign-box {
+          border-top: 1px solid #64748b;
+          padding-top: 2px;
+          font-size: 10px;
+          color: #475569;
+          min-width: 110px;
+          text-align: center;
+        }
+      </style>
+    </head>
+    <body>
+      <div class="header">
+        ${currentSettings.pharmacy_logo ? `<img class="logo" src="${currentSettings.pharmacy_logo}" alt="Logo" />` : ''}
+        <div class="pharmacy-title">${currentSettings.pharmacy_name}</div>
+        <div class="pharmacy-sub">${currentSettings.pharmacy_address}</div>
+        <div class="pharmacy-sub">${currentSettings.phone_number}</div>
+        <div class="badge">${labels.title}</div>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="meta-row">
+        <span>${labels.receiptNo}: <strong style="font-family: monospace;">${receipt.receipt_number}</strong></span>
+        <span>${dateDisplay}</span>
+      </div>
+      <div class="meta-row">
+        <span>${labels.customer}: <strong>${receipt.customer_name}</strong></span>
+        <span style="font-family: monospace;">${receipt.customer_phone}</span>
+      </div>
+      ${receipt.customer_address ? `
+      <div class="meta-row">
+        <span>${labels.address}: ${receipt.customer_address}</span>
+      </div>` : ''}
+
+      <div class="ledger-box">
+        <table>
+          <tr>
+            <td>${labels.prevDue}:</td>
+            <td class="text-right font-bold">${formatBDT(receipt.previous_balance)}</td>
+          </tr>
+          <tr style="color: #047857; font-size: 13px;">
+            <td class="font-bold">${labels.paidNow}:</td>
+            <td class="text-right font-bold">- ${formatBDT(receipt.amount)}</td>
+          </tr>
+          <tr style="border-top: 1px solid #cbd5e1; font-size: 14px; color: ${receipt.remaining_balance > 0 ? '#b91c1c' : '#047857'};">
+            <td class="font-bold" style="padding-top: 6px;">${labels.remDue}:</td>
+            <td class="text-right font-bold" style="padding-top: 6px;">
+              ${formatBDT(receipt.remaining_balance)}
+              ${receipt.remaining_balance <= 0 ? `<div style="font-size: 10px; color: #047857;">(${labels.settled})</div>` : ''}
+            </td>
+          </tr>
+        </table>
+      </div>
+
+      <div style="font-size: 11px; color: #334155;">
+        <div class="meta-row">
+          <span>${labels.method}:</span>
+          <strong>${methodText}</strong>
+        </div>
+        ${receipt.reference ? `
+        <div class="meta-row">
+          <span>${labels.ref}:</span>
+          <span style="font-family: monospace;">${receipt.reference}</span>
+        </div>` : ''}
+        ${receipt.notes ? `
+        <div class="meta-row">
+          <span>${labels.notes}:</span>
+          <span>${receipt.notes}</span>
+        </div>` : ''}
+      </div>
+
+      <div class="sign-line">
+        <div class="sign-box">${labels.sign}</div>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="footer">
+        <div class="font-bold">${labels.thanks}</div>
+        <div style="margin-top: 4px; font-family: monospace; font-size: 8px;">NIRAMOY POS · DUE LEDGER RECEIPT</div>
       </div>
     </body>
     </html>

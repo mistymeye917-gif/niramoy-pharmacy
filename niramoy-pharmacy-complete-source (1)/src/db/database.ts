@@ -229,10 +229,13 @@ export function initDatabase(dbFilePath?: string): DatabaseSync {
 
     CREATE TABLE IF NOT EXISTS customer_payments (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
+      receipt_number TEXT,
       customer_id INTEGER NOT NULL,
       sale_id INTEGER,
       payment_date TEXT NOT NULL,
       amount REAL NOT NULL,
+      previous_balance REAL NOT NULL DEFAULT 0.0,
+      remaining_balance REAL NOT NULL DEFAULT 0.0,
       payment_method TEXT NOT NULL,
       reference TEXT,
       notes TEXT,
@@ -360,6 +363,17 @@ export function initDatabase(dbFilePath?: string): DatabaseSync {
   }
   if (!customerCols.includes('nid_back_photo_data')) {
     db.exec('ALTER TABLE customers ADD COLUMN nid_back_photo_data TEXT;');
+  }
+
+  const custPaymentCols = (db.prepare('PRAGMA table_info(customer_payments);').all() as { name: string }[]).map(c => c.name);
+  if (!custPaymentCols.includes('receipt_number')) {
+    db.exec('ALTER TABLE customer_payments ADD COLUMN receipt_number TEXT;');
+  }
+  if (!custPaymentCols.includes('previous_balance')) {
+    db.exec('ALTER TABLE customer_payments ADD COLUMN previous_balance REAL NOT NULL DEFAULT 0.0;');
+  }
+  if (!custPaymentCols.includes('remaining_balance')) {
+    db.exec('ALTER TABLE customer_payments ADD COLUMN remaining_balance REAL NOT NULL DEFAULT 0.0;');
   }
 
   // Default settings
