@@ -38,13 +38,30 @@ export const PurchasesPage: React.FC<PurchasesPageProps> = ({
 
   // New Purchase Modal
   const [showModal, setShowModal] = useState(false);
-  const [supplierId, setSupplierId] = useState<number>(1);
+  const [supplierId, setSupplierId] = useState<number>(0);
   const [invoiceNumber, setInvoiceNumber] = useState('');
   const [purchaseDate, setPurchaseDate] = useState(new Date().toISOString().split('T')[0]);
   const [paidAmount, setPaidAmount] = useState<number>(0);
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'bkash' | 'nagad' | 'rocket' | 'card'>('cash');
   const [notes, setNotes] = useState('');
   const [items, setItems] = useState<PurchaseItemInput[]>([]);
+
+  // Inline Quick-Add Supplier
+  const [showQuickSupplier, setShowQuickSupplier] = useState(false);
+  const [quickSuppName, setQuickSuppName] = useState('');
+  const [quickSuppPhone, setQuickSuppPhone] = useState('');
+  const [quickSuppAddress, setQuickSuppAddress] = useState('');
+  const [isSavingQuickSupp, setIsSavingQuickSupp] = useState(false);
+
+  // Inline Quick-Add Medicine
+  const [showQuickMed, setShowQuickMed] = useState(false);
+  const [quickMedBrand, setQuickMedBrand] = useState('');
+  const [quickMedGeneric, setQuickMedGeneric] = useState('');
+  const [quickMedCompany, setQuickMedCompany] = useState('');
+  const [quickMedStrength, setQuickMedStrength] = useState('');
+  const [quickMedForm, setQuickMedForm] = useState('Tablet');
+  const [quickMedSalePrice, setQuickMedSalePrice] = useState<number>(0);
+  const [isSavingQuickMed, setIsSavingQuickMed] = useState(false);
 
   // Item input row
   const [selectedMedId, setSelectedMedId] = useState<number>(0);
@@ -71,11 +88,17 @@ export const PurchasesPage: React.FC<PurchasesPageProps> = ({
       setPurchases(p);
       setSuppliers(s);
       setMedicines(m);
-      if (s.length > 0 && !supplierId) setSupplierId(s[0].id);
-      if (m.length > 0 && !selectedMedId) {
+      if (s.length > 0 && (!supplierId || !s.some(x => x.id === supplierId))) {
+        setSupplierId(s[0].id);
+      } else if (s.length === 0) {
+        setSupplierId(0);
+      }
+      if (m.length > 0 && (!selectedMedId || !m.some(x => x.id === selectedMedId))) {
         setSelectedMedId(m[0].id);
         setSelectedUnit(m[0].base_unit);
         setUnitCost(Math.round(m[0].sale_price * 0.8 * 100) / 100);
+      } else if (m.length === 0) {
+        setSelectedMedId(0);
       }
     } catch (err) {
       console.error(err);
@@ -98,9 +121,96 @@ export const PurchasesPage: React.FC<PurchasesPageProps> = ({
     }
   };
 
+  const handleQuickSaveSupplier = async () => {
+    if (!quickSuppName.trim() || !quickSuppPhone.trim()) {
+      setErrorMessage(
+        lang === 'bn'
+          ? 'নতুন সরবরাহকারীর কোম্পানির নাম এবং ফোন নম্বর দিন।'
+          : 'Please enter supplier company name and phone number.'
+      );
+      return;
+    }
+    setIsSavingQuickSupp(true);
+    setErrorMessage('');
+    try {
+      const res = await api.saveSupplier({
+        name: quickSuppName.trim(),
+        phone: quickSuppPhone.trim(),
+        address: quickSuppAddress.trim()
+      });
+      const updatedSuppliers = await api.getSuppliers();
+      setSuppliers(updatedSuppliers);
+      setSupplierId(res.id);
+      setQuickSuppName('');
+      setQuickSuppPhone('');
+      setQuickSuppAddress('');
+      setShowQuickSupplier(false);
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Failed to save supplier');
+    } finally {
+      setIsSavingQuickSupp(false);
+    }
+  };
+
+  const handleQuickSaveMedicine = async () => {
+    if (!quickMedBrand.trim() || quickMedSalePrice <= 0) {
+      setErrorMessage(
+        lang === 'bn'
+          ? 'নতুন ওষুধের নাম (Brand Name) এবং বিক্রয় মূল্য (০-এর বেশি) দিন।'
+          : 'Please enter medicine brand name and valid sale price (> 0).'
+      );
+      return;
+    }
+    setIsSavingQuickMed(true);
+    setErrorMessage('');
+    try {
+      const selectedSuppName = suppliers.find(s => s.id === supplierId)?.name || 'Local Supplier';
+      const baseUnit = quickMedForm === 'Syrup' || quickMedForm === 'Drop' ? 'Bottle'
+        : quickMedForm === 'Injection' || quickMedForm === 'Vial' ? 'Piece'
+        : quickMedForm;
+      const res = await api.saveMedicine({
+        brand_name: quickMedBrand.trim(),
+        generic_name: quickMedGeneric.trim() || quickMedBrand.trim(),
+        manufacturer: quickMedCompany.trim() || selectedSuppName,
+        strength: quickMedStrength.trim() || '-',
+        dosage_form: quickMedForm,
+        base_unit: baseUnit,
+        sale_price: quickMedSalePrice,
+        active: 1
+      });
+      const updatedMeds = await api.getMedicines();
+      setMedicines(updatedMeds);
+      setSelectedMedId(res.id);
+      setSelectedUnit(baseUnit);
+      setUnitCost(Math.round(quickMedSalePrice * 0.8 * 100) / 100);
+      setQuickMedBrand('');
+      setQuickMedGeneric('');
+      setQuickMedCompany('');
+      setQuickMedStrength('');
+      setQuickMedSalePrice(0);
+      setShowQuickMed(false);
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Failed to save medicine');
+    } finally {
+      setIsSavingQuickMed(false);
+    }
+  };
+
   const handleAddItem = () => {
-    if (!selectedMedId || !batchNo.trim() || !expiryDate || qty <= 0 || unitCost <= 0) {
-      setErrorMessage('Please fill all item fields with valid positive values.');
+    if (!selectedMedId) {
+      setErrorMessage(
+        lang === 'bn'
+          ? 'অনুগ্রহ করে প্রথমে তালিকা থেকে ওষুধ নির্বাচন করুন (তালিকা খালি থাকলে "+ নতুন ওষুধ" ক্লিক করে যোগ করুন)।'
+          : 'Please select a medicine first (or click "+ New Medicine" if the list is empty).'
+      );
+      return;
+    }
+    if (!batchNo.trim() || !expiryDate || qty <= 0 || unitCost <= 0) {
+      setErrorMessage(
+        lang === 'bn'
+          ? 'অনুগ্রহ করে Batch No, মেয়াদের তারিখ, Qty এবং Cost সঠিকভাবে পূরণ করুন।'
+          : 'Please fill all item fields with valid positive values.'
+      );
       return;
     }
 
@@ -141,6 +251,14 @@ export const PurchasesPage: React.FC<PurchasesPageProps> = ({
 
   const handleSubmitPurchase = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!supplierId) {
+      setErrorMessage(
+        lang === 'bn'
+          ? 'অনুগ্রহ করে প্রথমে সরবরাহকারী নির্বাচন বা "+ নতুন" দিয়ে যোগ করুন।'
+          : 'Please select or create a supplier first.'
+      );
+      return;
+    }
     if (!invoiceNumber.trim()) {
       setErrorMessage('Please enter supplier invoice number.');
       return;
@@ -194,6 +312,9 @@ export const PurchasesPage: React.FC<PurchasesPageProps> = ({
             setItems([]);
             setErrorMessage('');
             setSuccessMessage('');
+            setShowQuickSupplier(false);
+            setShowQuickMed(false);
+            loadData();
             setShowModal(true);
           }}
           className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-xs flex items-center gap-1.5 transition-colors cursor-pointer"
@@ -283,15 +404,46 @@ export const PurchasesPage: React.FC<PurchasesPageProps> = ({
                   </div>
                 )}
 
+                {/* Helpful hint when empty after reset */}
+                {(suppliers.length === 0 || medicines.length === 0) && (
+                  <div className="p-3 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 flex items-start gap-2 text-[11px]">
+                    <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                    <div>
+                      <span className="font-bold">
+                        {lang === 'bn'
+                          ? 'এগুলো নির্বাচন তালিকা (Dropdown) — সরাসরি লেখা যায় না:'
+                          : 'These fields are dropdown selectors — not text inputs:'}
+                      </span>{' '}
+                      {lang === 'bn'
+                        ? 'ফুল রিসেটের পর তালিকা খালি থাকায় নিচে কিছু দেখা যাচ্ছে না। পাশের "+ নতুন" ও "+ নতুন ওষুধ" বাটনে ক্লিক করে সরাসরি এখান থেকেই আপনার কোম্পানী ও ওষুধ যোগ করুন।'
+                        : 'Since the database was reset, these lists are currently empty. Use the "+ New" buttons right next to each dropdown to register your supplier and medicine.'}
+                    </div>
+                  </div>
+                )}
+
                 {/* Top Parameters */}
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div>
-                    <label className="block font-semibold text-slate-700 mb-1">{t('pur_select_supplier')} *</label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="font-semibold text-slate-700">{t('pur_select_supplier')} *</label>
+                      <button
+                        type="button"
+                        onClick={() => setShowQuickSupplier(v => !v)}
+                        className="text-[11px] font-bold text-emerald-700 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100 px-2 py-0.5 rounded border border-emerald-200 cursor-pointer"
+                      >
+                        {showQuickSupplier ? (lang === 'bn' ? 'বন্ধ করুন' : 'Close') : (lang === 'bn' ? '+ নতুন' : '+ New')}
+                      </button>
+                    </div>
                     <select
                       value={supplierId}
-                      onChange={(e) => setSupplierId(parseInt(e.target.value, 10))}
-                      className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs font-medium"
+                      onChange={(e) => setSupplierId(parseInt(e.target.value, 10) || 0)}
+                      className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-medium"
                     >
+                      <option value={0}>
+                        {suppliers.length === 0
+                          ? (lang === 'bn' ? '-- কোনো সরবরাহকারী নেই (+ নতুন ক্লিক করুন) --' : '-- No suppliers yet (click + New) --')
+                          : (lang === 'bn' ? '-- সরবরাহকারী নির্বাচন করুন --' : '-- Select supplier --')}
+                      </option>
                       {suppliers.map(s => (
                         <option key={s.id} value={s.id}>{s.name}</option>
                       ))}
@@ -320,17 +472,159 @@ export const PurchasesPage: React.FC<PurchasesPageProps> = ({
                   </div>
                 </div>
 
+                {/* Inline Quick-Add Supplier Panel */}
+                {showQuickSupplier && (
+                  <div className="p-3 bg-emerald-50/70 border border-emerald-200 rounded-xl space-y-2.5">
+                    <div className="font-bold text-emerald-900 flex items-center gap-1.5">
+                      <Building2 className="w-3.5 h-3.5 text-emerald-700" />
+                      <span>{lang === 'bn' ? 'নতুন সরবরাহকারী (কোম্পানি) যোগ করুন' : 'Quick Add Supplier Company'}</span>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      <input
+                        type="text"
+                        value={quickSuppName}
+                        onChange={(e) => setQuickSuppName(e.target.value)}
+                        placeholder={lang === 'bn' ? 'কোম্পানির নাম * (যেমন: Square Pharma)' : 'Company Name *'}
+                        className="px-2.5 py-1.5 bg-white border border-emerald-300 rounded-lg text-xs"
+                      />
+                      <input
+                        type="text"
+                        value={quickSuppPhone}
+                        onChange={(e) => setQuickSuppPhone(e.target.value)}
+                        placeholder={lang === 'bn' ? 'ফোন নম্বর * (যেমন: 017...)' : 'Phone Number *'}
+                        className="px-2.5 py-1.5 bg-white border border-emerald-300 rounded-lg text-xs"
+                      />
+                      <input
+                        type="text"
+                        value={quickSuppAddress}
+                        onChange={(e) => setQuickSuppAddress(e.target.value)}
+                        placeholder={lang === 'bn' ? 'ঠিকানা (ঐচ্ছিক)' : 'Address (Optional)'}
+                        className="px-2.5 py-1.5 bg-white border border-emerald-300 rounded-lg text-xs"
+                      />
+                    </div>
+                    <div className="flex justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setShowQuickSupplier(false)}
+                        className="px-2.5 py-1 bg-white border border-slate-300 rounded text-xs text-slate-600 cursor-pointer"
+                      >
+                        {t('cancel')}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleQuickSaveSupplier}
+                        disabled={isSavingQuickSupp}
+                        className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-semibold cursor-pointer disabled:opacity-50"
+                      >
+                        {isSavingQuickSupp ? '...' : (lang === 'bn' ? 'সরবরাহকারী সেভ করুন' : 'Save Supplier')}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 {/* Add Item Form Bar */}
                 <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
-                  <div className="font-semibold text-slate-800">Add Item to Purchase Invoice</div>
+                  <div className="flex items-center justify-between">
+                    <div className="font-semibold text-slate-800">Add Item to Purchase Invoice</div>
+                    <button
+                      type="button"
+                      onClick={() => setShowQuickMed(v => !v)}
+                      className="text-[11px] font-bold text-indigo-700 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 px-2.5 py-0.5 rounded border border-indigo-200 cursor-pointer"
+                    >
+                      {showQuickMed ? (lang === 'bn' ? 'বন্ধ করুন' : 'Close') : (lang === 'bn' ? '+ নতুন ওষুধ যোগ করুন' : '+ New Medicine')}
+                    </button>
+                  </div>
+
+                  {/* Inline Quick-Add Medicine Panel */}
+                  {showQuickMed && (
+                    <div className="p-3 bg-indigo-50/70 border border-indigo-200 rounded-lg space-y-2">
+                      <div className="font-bold text-indigo-900">
+                        {lang === 'bn' ? 'নতুন ওষুধ রেজিস্টার করুন' : 'Quick Register New Medicine'}
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                        <input
+                          type="text"
+                          value={quickMedBrand}
+                          onChange={(e) => setQuickMedBrand(e.target.value)}
+                          placeholder={lang === 'bn' ? 'ওষুধের নাম * (যেমন: Napa 500mg)' : 'Brand Name * (e.g. Napa 500mg)'}
+                          className="px-2 py-1.5 bg-white border border-indigo-300 rounded text-xs"
+                        />
+                        <input
+                          type="text"
+                          value={quickMedGeneric}
+                          onChange={(e) => setQuickMedGeneric(e.target.value)}
+                          placeholder={lang === 'bn' ? 'জেনেরিক (যেমন: Paracetamol)' : 'Generic (e.g. Paracetamol)'}
+                          className="px-2 py-1.5 bg-white border border-indigo-300 rounded text-xs"
+                        />
+                        <input
+                          type="text"
+                          value={quickMedStrength}
+                          onChange={(e) => setQuickMedStrength(e.target.value)}
+                          placeholder={lang === 'bn' ? 'পাওয়ার (যেমন: 500 mg)' : 'Strength (e.g. 500 mg)'}
+                          className="px-2 py-1.5 bg-white border border-indigo-300 rounded text-xs"
+                        />
+                        <input
+                          type="text"
+                          value={quickMedCompany}
+                          onChange={(e) => setQuickMedCompany(e.target.value)}
+                          placeholder={lang === 'bn' ? 'কোম্পানি (যেমন: Beximco)' : 'Manufacturer'}
+                          className="px-2 py-1.5 bg-white border border-indigo-300 rounded text-xs"
+                        />
+                        <select
+                          value={quickMedForm}
+                          onChange={(e) => setQuickMedForm(e.target.value)}
+                          className="px-2 py-1.5 bg-white border border-indigo-300 rounded text-xs"
+                        >
+                          <option value="Tablet">Tablet</option>
+                          <option value="Capsule">Capsule</option>
+                          <option value="Syrup">Syrup (Bottle)</option>
+                          <option value="Injection">Injection (Piece)</option>
+                          <option value="Drop">Drop (Bottle)</option>
+                          <option value="Piece">Piece / Other</option>
+                        </select>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={quickMedSalePrice || ''}
+                          onChange={(e) => setQuickMedSalePrice(parseFloat(e.target.value) || 0)}
+                          placeholder={lang === 'bn' ? 'বিক্রয় মূল্য ৳ * (প্রতি পিস)' : 'Sale Price ৳ * (per unit)'}
+                          className="px-2 py-1.5 bg-white border border-indigo-300 rounded text-xs"
+                        />
+                      </div>
+                      <div className="flex justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setShowQuickMed(false)}
+                          className="px-2.5 py-1 bg-white border border-slate-300 rounded text-xs text-slate-600 cursor-pointer"
+                        >
+                          {t('cancel')}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleQuickSaveMedicine}
+                          disabled={isSavingQuickMed}
+                          className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-xs font-semibold cursor-pointer disabled:opacity-50"
+                        >
+                          {isSavingQuickMed ? '...' : (lang === 'bn' ? 'ওষুধ সেভ করুন' : 'Save Medicine')}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
                   <div className="grid grid-cols-1 sm:grid-cols-5 gap-2.5">
                     <div className="sm:col-span-2">
                       <label className="block text-[11px] text-slate-500 mb-0.5">Medicine</label>
                       <select
                         value={selectedMedId}
-                        onChange={(e) => handleMedChange(parseInt(e.target.value, 10))}
+                        onChange={(e) => handleMedChange(parseInt(e.target.value, 10) || 0)}
                         className="w-full px-2 py-1 bg-white border border-slate-300 rounded text-xs"
                       >
+                        <option value={0}>
+                          {medicines.length === 0
+                            ? (lang === 'bn' ? '-- কোনো ওষুধ নেই (+ নতুন ওষুধ ক্লিক করুন) --' : '-- No medicines yet (click + New Medicine) --')
+                            : (lang === 'bn' ? '-- ওষুধ নির্বাচন করুন --' : '-- Select medicine --')}
+                        </option>
                         {medicines.map(m => (
                           <option key={m.id} value={m.id}>{m.brand_name} ({m.strength})</option>
                         ))}
