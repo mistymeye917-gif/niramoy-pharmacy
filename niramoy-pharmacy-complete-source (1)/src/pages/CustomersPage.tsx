@@ -89,6 +89,11 @@ export const CustomersPage: React.FC<CustomersPageProps> = ({
   // View Customer Profile & Photo/NID Modal
   const [viewCust, setViewCust] = useState<Customer | null>(null);
 
+  // Delete Customer Confirmation Modal
+  const [deleteCust, setDeleteCust] = useState<Customer | null>(null);
+  const [deleteError, setDeleteError] = useState('');
+  const [isDeletingCust, setIsDeletingCust] = useState(false);
+
   // Receive Payment Modal
   const [showPayModal, setShowPayModal] = useState(false);
   const [selectedCust, setSelectedCust] = useState<Customer | null>(null);
@@ -203,6 +208,27 @@ export const CustomersPage: React.FC<CustomersPageProps> = ({
       loadCustomers();
     } catch (err: any) {
       setPayError(err.message || 'Payment recording failed');
+    }
+  };
+
+  const handleConfirmDeleteCustomer = async () => {
+    if (!deleteCust) return;
+    setIsDeletingCust(true);
+    setDeleteError('');
+    try {
+      await api.deleteCustomer(deleteCust.id);
+      const deletedName = deleteCust.name;
+      setDeleteCust(null);
+      setMessage(
+        lang === 'bn'
+          ? `গ্রাহক "${deletedName}" সফলভাবে তালিকা থেকে মুছে ফেলা হয়েছে।`
+          : `Customer "${deletedName}" deleted successfully.`
+      );
+      loadCustomers();
+    } catch (err: any) {
+      setDeleteError(err.message || (lang === 'bn' ? 'গ্রাহক মুছে ফেলা যায়নি।' : 'Failed to delete customer.'));
+    } finally {
+      setIsDeletingCust(false);
     }
   };
 
@@ -361,6 +387,17 @@ export const CustomersPage: React.FC<CustomersPageProps> = ({
                           title={lang === 'bn' ? 'তথ্য/ছবি এডিট করুন' : 'Edit Customer'}
                         >
                           <Edit3 className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setDeleteError('');
+                            setDeleteCust(c);
+                          }}
+                          className="p-1.5 rounded border border-slate-200 text-rose-600 hover:bg-rose-50 hover:border-rose-300 cursor-pointer"
+                          title={lang === 'bn' ? 'গ্রাহক বাতিল / মুছুন' : 'Delete Customer'}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
                         </button>
                         {c.balance > 0 ? (
                           <button
@@ -817,6 +854,76 @@ export const CustomersPage: React.FC<CustomersPageProps> = ({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+      {/* Delete Customer Confirmation Modal */}
+      {deleteCust && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="w-full max-w-md bg-white rounded-xl shadow-2xl border border-slate-200 overflow-hidden">
+            <div className="px-5 py-3.5 bg-rose-50 border-b border-rose-200 flex items-center justify-between">
+              <h3 className="text-sm font-bold text-rose-900 flex items-center gap-2">
+                <Trash2 className="w-4 h-4 text-rose-600" />
+                <span>{lang === 'bn' ? 'গ্রাহক মুছে ফেলবেন?' : 'Delete Customer?'}</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => setDeleteCust(null)}
+                className="text-rose-400 hover:text-rose-700 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="p-5 space-y-3.5 text-xs">
+              {deleteError && (
+                <div className="p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 flex items-start gap-2 font-semibold">
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                  <span>{deleteError}</span>
+                </div>
+              )}
+              <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 space-y-1">
+                <div className="font-bold text-slate-900 text-sm">{deleteCust.name}</div>
+                <div className="text-slate-600 font-mono">{deleteCust.phone}</div>
+                <div className="text-slate-600">
+                  {lang === 'bn' ? 'বর্তমান বাকি:' : 'Current Balance:'}{' '}
+                  <span className={`font-bold ${deleteCust.balance > 0 ? 'text-rose-700' : 'text-emerald-700'}`}>
+                    {formatBDT(deleteCust.balance)}
+                  </span>
+                </div>
+              </div>
+              {deleteCust.balance > 0 ? (
+                <div className="p-3 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 font-medium">
+                  {lang === 'bn'
+                    ? 'এই গ্রাহকের কাছে বাকি টাকা পাওনা আছে। আগে "বাকি আদায়" করে হিসাব ০ করুন, তারপর মুছে ফেলতে পারবেন।'
+                    : 'This customer has an outstanding balance. Please settle the due balance before deleting.'}
+                </div>
+              ) : (
+                <p className="text-slate-600 leading-relaxed">
+                  {lang === 'bn'
+                    ? 'আপনি কি নিশ্চিতভাবে এই গ্রাহকের নাম, ছবি ও NID তথ্য তালিকা থেকে স্থায়ীভাবে মুছে ফেলতে চান?'
+                    : 'Are you sure you want to permanently remove this customer and their saved photo/NID details?'}
+                </p>
+              )}
+              <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => setDeleteCust(null)}
+                  className="px-3.5 py-1.5 border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-50 cursor-pointer"
+                >
+                  {t('cancel')}
+                </button>
+                <button
+                  type="button"
+                  disabled={isDeletingCust || deleteCust.balance > 0}
+                  onClick={handleConfirmDeleteCustomer}
+                  className="px-4 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg font-semibold shadow-xs cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isDeletingCust
+                    ? t('loading')
+                    : (lang === 'bn' ? 'হ্যাঁ, মুছে ফেলুন' : 'Yes, Delete')}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

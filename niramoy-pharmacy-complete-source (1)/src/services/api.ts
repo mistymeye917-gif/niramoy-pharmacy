@@ -191,6 +191,12 @@ export const api = {
     });
     return handleResponse(res);
   },
+  async deleteCustomer(id: number): Promise<{ success: boolean }> {
+    const res = await fetch(`${API_BASE}/customers/${id}`, {
+      method: 'DELETE'
+    });
+    return handleResponse(res);
+  },
   async recordCustomerPayment(data: { customer_id: number; amount: number; payment_method: string; reference?: string; notes?: string }) {
     const res = await fetch(`${API_BASE}/customers/payments`, {
       method: 'POST',

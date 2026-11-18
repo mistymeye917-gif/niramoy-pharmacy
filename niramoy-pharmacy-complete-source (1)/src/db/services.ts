@@ -959,6 +959,35 @@ export function saveCustomer(cust: Partial<Customer>): number {
   }
 }
 
+export function deleteCustomer(id: number): boolean {
+  const db = getDb();
+  const cust = db.prepare('SELECT * FROM customers WHERE id = ?').get(id) as unknown as Customer | undefined;
+  if (!cust) {
+    throw new Error('গ্রাহক পাওয়া যায়নি।');
+  }
+  if (Number(cust.balance || 0) > 0.01) {
+    throw new Error(`গ্রাহকের বকেয়া (৳${Number(cust.balance).toFixed(2)}) থাকা অবস্থায় মুছে ফেলা যাবে না। আগে বাকি আদায় করুন।`);
+  }
+  const paymentCount = (
+    db.prepare('SELECT COUNT(*) as cnt FROM customer_payments WHERE customer_id = ?').get(id) as { cnt: number }
+  ).cnt;
+  if (paymentCount > 0) {
+    throw new Error('এই গ্রাহকের সাথে পূর্বের বাকি আদায়ের লেনদেন যুক্ত আছে, তাই হিসাবের নিরাপত্তার জন্য মুছে ফেলা যাবে না।');
+  }
+
+  db.exec('BEGIN TRANSACTION;');
+  try {
+    db.prepare('DELETE FROM customers WHERE id = ?').run(id);
+    db.prepare('INSERT INTO audit_logs (user_action, entity_type, entity_id, details, timestamp) VALUES (?, ?, ?, ?, ?)')
+      .run('CUSTOMER_DELETED', 'customer', String(id), `Deleted customer: ${cust.name} (${cust.phone})`, new Date().toISOString());
+    db.exec('COMMIT;');
+    return true;
+  } catch (err) {
+    db.exec('ROLLBACK;');
+    throw err;
+  }
+}
+
 export function recordCustomerPayment(data: {
   customer_id: number;
   amount: number;
