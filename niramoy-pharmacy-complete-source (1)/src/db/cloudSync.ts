@@ -32,30 +32,44 @@ async function executeTursoPipeline(requests: any[]): Promise<any[]> {
   }
 
   const pipelineUrl = getTursoPipelineUrl(rawUrl);
-  const res = await fetch(pipelineUrl, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${authToken}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      requests: [...requests, { type: 'close' }]
-    })
-  });
+  let lastError: any;
 
-  if (!res.ok) {
-    const errText = await res.text().catch(() => '');
-    throw new Error(`Turso HTTP ${res.status}: ${errText || res.statusText}`);
-  }
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const res = await fetch(pipelineUrl, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${authToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          requests: [...requests, { type: 'close' }]
+        }),
+        signal: AbortSignal.timeout(15000)
+      });
 
-  const json = (await res.json()) as { results?: any[] };
-  const results = json.results || [];
-  for (const r of results) {
-    if (r?.type === 'error') {
-      throw new Error(`Turso SQL error: ${r.error?.message || JSON.stringify(r.error)}`);
+      if (!res.ok) {
+        const errText = await res.text().catch(() => '');
+        throw new Error(`Turso HTTP ${res.status}: ${errText || res.statusText}`);
+      }
+
+      const json = (await res.json()) as { results?: any[] };
+      const results = json.results || [];
+      for (const r of results) {
+        if (r?.type === 'error') {
+          throw new Error(`Turso SQL error: ${r.error?.message || JSON.stringify(r.error)}`);
+        }
+      }
+      return results;
+    } catch (err: any) {
+      lastError = err;
+      if (attempt < 3) {
+        await new Promise((resolve) => setTimeout(resolve, attempt * 400));
+      }
     }
   }
-  return results;
+
+  throw lastError;
 }
 
 export async function restoreDatabaseFromCloudIfConfigured(

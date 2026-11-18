@@ -46,7 +46,12 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const today = new Date().toISOString().split('T')[0];
+  const today = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Dhaka',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).format(new Date());
   const [startDate, setStartDate] = useState(today);
   const [endDate, setEndDate] = useState(today);
 
@@ -57,12 +62,12 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
       try {
         setLoading(true);
         const [s, p, e, m, b, a] = await Promise.all([
-          api.getSales(200),
-          api.getPurchases(200),
+          api.getSales(5000),
+          api.getPurchases(5000),
           api.getExpenses(),
           api.getMedicines(),
           api.getBatches(undefined, true),
-          api.getAuditLogs(100)
+          api.getAuditLogs(500)
         ]);
         setSales(s);
         setPurchases(p);

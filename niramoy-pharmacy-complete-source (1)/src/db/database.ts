@@ -110,6 +110,10 @@ export function initDatabase(dbFilePath?: string): DatabaseSync {
       name TEXT NOT NULL,
       phone TEXT NOT NULL,
       address TEXT,
+      nid_number TEXT,
+      photo_data TEXT,
+      nid_photo_data TEXT,
+      nid_back_photo_data TEXT,
       balance REAL NOT NULL DEFAULT 0.0,
       notes TEXT,
       created_at TEXT NOT NULL
@@ -342,6 +346,21 @@ export function initDatabase(dbFilePath?: string): DatabaseSync {
     CREATE INDEX IF NOT EXISTS idx_sales_date ON sales_invoices(sale_date);
     CREATE INDEX IF NOT EXISTS idx_purchases_invoice_no ON purchase_invoices(invoice_number);
   `);
+
+  // Safe schema migrations for existing SQLite/Turso databases
+  const customerCols = (db.prepare('PRAGMA table_info(customers);').all() as { name: string }[]).map(c => c.name);
+  if (!customerCols.includes('nid_number')) {
+    db.exec('ALTER TABLE customers ADD COLUMN nid_number TEXT;');
+  }
+  if (!customerCols.includes('photo_data')) {
+    db.exec('ALTER TABLE customers ADD COLUMN photo_data TEXT;');
+  }
+  if (!customerCols.includes('nid_photo_data')) {
+    db.exec('ALTER TABLE customers ADD COLUMN nid_photo_data TEXT;');
+  }
+  if (!customerCols.includes('nid_back_photo_data')) {
+    db.exec('ALTER TABLE customers ADD COLUMN nid_back_photo_data TEXT;');
+  }
 
   // Default settings
   const defaultSettings: Record<string, string> = {

@@ -83,6 +83,10 @@ export interface Customer {
   name: string;
   phone: string;
   address?: string;
+  nid_number?: string;
+  photo_data?: string;
+  nid_photo_data?: string;
+  nid_back_photo_data?: string;
   notes?: string;
   balance: number; // Positive = customer owes money (receivable)
   created_at?: string;

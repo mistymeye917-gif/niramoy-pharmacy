@@ -40,7 +40,14 @@ export const PurchasesPage: React.FC<PurchasesPageProps> = ({
   const [showModal, setShowModal] = useState(false);
   const [supplierId, setSupplierId] = useState<number>(0);
   const [invoiceNumber, setInvoiceNumber] = useState('');
-  const [purchaseDate, setPurchaseDate] = useState(new Date().toISOString().split('T')[0]);
+  const [purchaseDate, setPurchaseDate] = useState(
+    new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Dhaka',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    }).format(new Date())
+  );
   const [paidAmount, setPaidAmount] = useState<number>(0);
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'bkash' | 'nagad' | 'rocket' | 'card'>('cash');
   const [notes, setNotes] = useState('');
@@ -81,7 +88,7 @@ export const PurchasesPage: React.FC<PurchasesPageProps> = ({
     try {
       setLoading(true);
       const [p, s, m] = await Promise.all([
-        api.getPurchases(),
+        api.getPurchases(500),
         api.getSuppliers(),
         api.getMedicines()
       ]);

@@ -12,7 +12,7 @@ import * as XLSX from 'xlsx';
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '50mb' }));
 
 // Automatic write-through cloud sync to Turso after successful API mutations
 app.use('/api', (req, res, next) => {
@@ -462,6 +462,18 @@ app.post('/api/backups/create', (req: Request, res: Response) => {
   }
 });
 
+app.get('/api/backups/download-db', (req: Request, res: Response) => {
+  try {
+    const { filename, buffer } = services.createDownloadableDbSnapshot();
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Length', String(buffer.length));
+    res.send(buffer);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post('/api/backups/restore', (req: Request, res: Response) => {
   try {
     const { backupFilePath, adminPassword } = req.body;
@@ -469,6 +481,21 @@ app.post('/api/backups/restore', (req: Request, res: Response) => {
     res.json({ success: true, message: 'Database successfully restored after creating safety backup.' });
   } catch (err: any) {
     res.status(400).json({ error: err.message });
+  }
+});
+
+app.post('/api/backups/upload-restore', (req: Request, res: Response) => {
+  try {
+    const { fileBase64, adminPassword } = req.body;
+    if (!fileBase64) {
+      return res.status(400).json({ error: 'No backup file selected.' });
+    }
+    const buffer = Buffer.from(fileBase64, 'base64');
+    services.restoreBackupFromBuffer(buffer, adminPassword);
+    res.json({ success: true, message: 'Database successfully restored from uploaded backup file.' });
+  } catch (err: any) {
+    const status = err.message?.includes('password') ? 401 : 400;
+    res.status(status).json({ error: err.message });
   }
 });
 

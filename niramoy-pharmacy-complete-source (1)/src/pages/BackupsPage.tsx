@@ -19,6 +19,7 @@ import {
   X,
   FolderDown,
   Download,
+  Upload,
   Trash2,
   RefreshCw
 } from 'lucide-react';
@@ -37,6 +38,96 @@ export const BackupsPage: React.FC<BackupsPageProps> = ({
   const [isBackingUp, setIsBackingUp] = useState(false);
   const [backupNotice, setBackupNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [isDownloadingZip, setIsDownloadingZip] = useState(false);
+  const [isDownloadingDb, setIsDownloadingDb] = useState(false);
+
+  // Upload Restore Modal State
+  const [showUploadRestoreModal, setShowUploadRestoreModal] = useState(false);
+  const [uploadFileName, setUploadFileName] = useState('');
+  const [uploadFileBase64, setUploadFileBase64] = useState('');
+  const [uploadPassword, setUploadPassword] = useState('');
+  const [isUploadingRestore, setIsUploadingRestore] = useState(false);
+  const [uploadRestoreError, setUploadRestoreError] = useState('');
+
+  const handleDownloadDbSnapshot = async () => {
+    setIsDownloadingDb(true);
+    setBackupNotice(null);
+    try {
+      const res = await fetch('/api/backups/download-db');
+      if (!res.ok) throw new Error(`Server returned status ${res.status}`);
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      const today = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Dhaka',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+      }).format(new Date());
+      link.href = url;
+      link.download = `niramoy-pharmacy-backup-${today}.sqlite`;
+      document.body.appendChild(link);
+      link.click();
+      setTimeout(() => {
+        document.body.removeChild(link);
+        window.URL.revokeObjectURL(url);
+      }, 1500);
+      setBackupNotice({
+        type: 'success',
+        message: lang === 'bn'
+          ? 'আপনার সম্পূর্ণ ফার্মেসি ডেটাবেস (.sqlite) ব্যাকআপ ফাইল পিসি/মোবাইলে ডাউনলোড হচ্ছে!'
+          : 'Complete SQLite database backup downloaded to your device.'
+      });
+    } catch (err: any) {
+      setBackupNotice({
+        type: 'error',
+        message: lang === 'bn' ? `ব্যাকআপ ডাউনলোড ব্যর্থ: ${err.message}` : `Download failed: ${err.message}`
+      });
+    } finally {
+      setIsDownloadingDb(false);
+    }
+  };
+
+  const handleSelectRestoreFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result as string;
+      const base64 = dataUrl.includes(',') ? dataUrl.split(',')[1] : dataUrl;
+      setUploadFileName(file.name);
+      setUploadFileBase64(base64);
+      setUploadPassword('');
+      setUploadRestoreError('');
+      setShowUploadRestoreModal(true);
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
+  const handleConfirmUploadRestore = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!uploadFileBase64 || !uploadPassword) {
+      setUploadRestoreError(lang === 'bn' ? 'অ্যাডমিন পাসওয়ার্ড দিন।' : 'Admin password is required.');
+      return;
+    }
+    setIsUploadingRestore(true);
+    setUploadRestoreError('');
+    try {
+      await api.restoreBackupFromFile(uploadFileBase64, uploadPassword);
+      setShowUploadRestoreModal(false);
+      setBackupNotice({
+        type: 'success',
+        message: lang === 'bn'
+          ? 'ব্যাকআপ ফাইল থেকে সম্পূর্ণ ডেটা সফলভাবে রিস্টোর হয়েছে! পেজ রিলোড হচ্ছে...'
+          : 'Database restored cleanly from uploaded backup file!'
+      });
+      setTimeout(() => window.location.reload(), 1200);
+    } catch (err: any) {
+      setUploadRestoreError(err.message || 'Restore failed');
+    } finally {
+      setIsUploadingRestore(false);
+    }
+  };
 
   const handleDownloadProjectZip = async () => {
     setIsDownloadingZip(true);
@@ -199,7 +290,30 @@ export const BackupsPage: React.FC<BackupsPageProps> = ({
             {t('back_desc')}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={handleDownloadDbSnapshot}
+            disabled={isDownloadingDb}
+            className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-semibold shadow-xs flex items-center gap-2 transition-colors cursor-pointer disabled:opacity-50"
+            title="Download live SQLite database backup file directly to your PC or Phone"
+          >
+            <Download className={`w-4 h-4 ${isDownloadingDb ? 'animate-bounce' : ''}`} />
+            <span>
+              {isDownloadingDb
+                ? (lang === 'bn' ? 'ডাউনলোড হচ্ছে...' : 'Downloading DB...')
+                : (lang === 'bn' ? 'পিসিতে ডেটাবেস ডাউনলোড (.sqlite)' : 'Download DB Backup (.sqlite)')}
+            </span>
+          </button>
+          <label className="px-4 py-2 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 rounded-lg text-xs font-semibold shadow-xs flex items-center gap-2 transition-colors cursor-pointer">
+            <Upload className="w-4 h-4" />
+            <span>{lang === 'bn' ? 'ফাইল থেকে রিস্টোর (.sqlite)' : 'Restore from File'}</span>
+            <input
+              type="file"
+              accept=".sqlite,.db"
+              onChange={handleSelectRestoreFile}
+              className="hidden"
+            />
+          </label>
           <button
             onClick={handleDownloadProjectZip}
             disabled={isDownloadingZip}
@@ -708,6 +822,63 @@ export const BackupsPage: React.FC<BackupsPageProps> = ({
                 </div>
               )}
             </div>
+          </div>
+        </div>
+      )}
+      {/* Upload Restore File Modal */}
+      {showUploadRestoreModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="w-full max-w-md bg-white rounded-xl shadow-2xl border border-slate-200 overflow-hidden text-xs">
+            <div className="px-5 py-3.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+              <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                <Upload className="w-4 h-4 text-amber-600" />
+                <span>{lang === 'bn' ? 'ফাইল থেকে ডেটাবেস রিস্টোর' : 'Restore Database from File'}</span>
+              </h3>
+              <button onClick={() => setShowUploadRestoreModal(false)} className="text-slate-400 hover:text-slate-700 cursor-pointer">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <form onSubmit={handleConfirmUploadRestore} className="p-5 space-y-4">
+              <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 font-mono text-[11px] break-all">
+                <strong>{lang === 'bn' ? 'ফাইল:' : 'File:'}</strong> {uploadFileName}
+              </div>
+              {uploadRestoreError && (
+                <div className="p-3 bg-rose-50 border border-rose-200 rounded-lg text-rose-800 font-semibold">
+                  {uploadRestoreError}
+                </div>
+              )}
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">
+                  {lang === 'bn' ? 'নিশ্চিত করতে অ্যাডমিন পাসওয়ার্ড দিন *' : 'Administrator Password *'}
+                </label>
+                <input
+                  type="password"
+                  autoFocus
+                  value={uploadPassword}
+                  onChange={(e) => setUploadPassword(e.target.value)}
+                  placeholder="Admin password..."
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-hidden"
+                />
+              </div>
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowUploadRestoreModal(false)}
+                  className="px-3.5 py-2 border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-50 cursor-pointer"
+                >
+                  {t('cancel')}
+                </button>
+                <button
+                  type="submit"
+                  disabled={isUploadingRestore || !uploadPassword}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-semibold cursor-pointer disabled:opacity-50"
+                >
+                  {isUploadingRestore
+                    ? (lang === 'bn' ? 'রিস্টোর হচ্ছে...' : 'Restoring...')
+                    : (lang === 'bn' ? 'রিস্টোর নিশ্চিত করুন' : 'Confirm Restore')}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

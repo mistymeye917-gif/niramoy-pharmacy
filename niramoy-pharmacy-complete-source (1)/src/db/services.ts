@@ -1,6 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import * as os from 'node:os';
 import * as crypto from 'node:crypto';
 import { getDb, getCurrentDbPath, hashPassword, verifyPassword, populateSeedData, initDatabase } from './database.ts';
 import {
@@ -24,6 +25,15 @@ let backupDirOverride: string | null = null;
 
 export function setBackupDirOverride(dir: string | null): void {
   backupDirOverride = dir;
+}
+
+export function getBangladeshToday(): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Dhaka',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).format(new Date());
 }
 
 // ----------------------------------------------------
@@ -312,7 +322,7 @@ export function executeSale(saleData: {
   const settings = getSettings();
   const now = new Date();
   const nowIso = now.toISOString();
-  const dateStr = nowIso.split('T')[0];
+  const dateStr = getBangladeshToday();
 
   // Begin atomic transaction
   db.exec('BEGIN TRANSACTION;');
@@ -802,7 +812,7 @@ export function processReturn(data: {
     db.prepare(`
       INSERT INTO returns (sale_id, invoice_number, return_date, total_refund_amount, payment_method, reason, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(data.sale_id, sale.invoice_number, now.split('T')[0], totalRefund, data.refund_method, data.reason, now);
+    `).run(data.sale_id, sale.invoice_number, getBangladeshToday(), totalRefund, data.refund_method, data.reason, now);
 
     const returnId = (db.prepare('SELECT last_insert_rowid() as id').get() as { id: number }).id;
 
@@ -909,7 +919,7 @@ export function getCustomers(search?: string): Customer[] {
   const db = getDb();
   if (search && search.trim()) {
     const s = `%${search.trim()}%`;
-    return db.prepare('SELECT * FROM customers WHERE name LIKE ? OR phone LIKE ? ORDER BY name ASC').all(s, s) as unknown as Customer[];
+    return db.prepare('SELECT * FROM customers WHERE name LIKE ? OR phone LIKE ? OR COALESCE(nid_number, \'\') LIKE ? ORDER BY name ASC').all(s, s, s) as unknown as Customer[];
   }
   return db.prepare('SELECT * FROM customers ORDER BY name ASC').all() as unknown as Customer[];
 }
@@ -918,12 +928,33 @@ export function saveCustomer(cust: Partial<Customer>): number {
   const db = getDb();
   const now = new Date().toISOString();
   if (cust.id) {
-    db.prepare('UPDATE customers SET name = ?, phone = ?, address = ?, notes = ? WHERE id = ?')
-      .run(cust.name || '', cust.phone || '', cust.address || '', cust.notes || '', cust.id);
+    db.prepare('UPDATE customers SET name = ?, phone = ?, address = ?, nid_number = ?, photo_data = ?, nid_photo_data = ?, nid_back_photo_data = ?, notes = ? WHERE id = ?')
+      .run(
+        cust.name || '',
+        cust.phone || '',
+        cust.address || '',
+        cust.nid_number || '',
+        cust.photo_data || '',
+        cust.nid_photo_data || '',
+        cust.nid_back_photo_data || '',
+        cust.notes || '',
+        cust.id
+      );
     return cust.id;
   } else {
-    db.prepare('INSERT INTO customers (name, phone, address, balance, notes, created_at) VALUES (?, ?, ?, ?, ?, ?)')
-      .run(cust.name || '', cust.phone || '', cust.address || '', cust.balance || 0, cust.notes || '', now);
+    db.prepare('INSERT INTO customers (name, phone, address, nid_number, photo_data, nid_photo_data, nid_back_photo_data, balance, notes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(
+        cust.name || '',
+        cust.phone || '',
+        cust.address || '',
+        cust.nid_number || '',
+        cust.photo_data || '',
+        cust.nid_photo_data || '',
+        cust.nid_back_photo_data || '',
+        cust.balance || 0,
+        cust.notes || '',
+        now
+      );
     return (db.prepare('SELECT last_insert_rowid() as id').get() as { id: number }).id;
   }
 }
@@ -943,7 +974,7 @@ export function recordCustomerPayment(data: {
     db.prepare(`
       INSERT INTO customer_payments (customer_id, payment_date, amount, payment_method, reference, notes, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(data.customer_id, now.split('T')[0], data.amount, data.payment_method, data.reference || '', data.notes || '', now);
+    `).run(data.customer_id, getBangladeshToday(), data.amount, data.payment_method, data.reference || '', data.notes || '', now);
     db.exec('COMMIT;');
     return true;
   } catch (err) {
@@ -999,7 +1030,7 @@ export function recordSupplierPayment(data: {
     db.prepare(`
       INSERT INTO supplier_payments (supplier_id, purchase_id, payment_date, amount, payment_method, reference, notes, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(data.supplier_id, data.purchase_id || null, now.split('T')[0], data.amount, data.payment_method, data.reference || '', data.notes || '', now);
+    `).run(data.supplier_id, data.purchase_id || null, getBangladeshToday(), data.amount, data.payment_method, data.reference || '', data.notes || '', now);
     db.exec('COMMIT;');
     return true;
   } catch (err) {
@@ -1032,7 +1063,7 @@ export function addExpense(expense: Partial<Expense>): number {
   `).run(
     expense.category || 'Other',
     expense.amount ?? 0,
-    expense.expense_date || now.split('T')[0],
+    expense.expense_date || getBangladeshToday(),
     expense.description || '',
     expense.payee || '',
     expense.payment_method || 'cash',
@@ -1058,7 +1089,7 @@ export function recordCashMovement(type: 'deposit' | 'withdrawal', amount: numbe
 export function getDashboardData(): DashboardStats {
   const db = getDb();
   const settings = getSettings();
-  const today = new Date().toISOString().split('T')[0];
+  const today = getBangladeshToday();
 
   // Today's completed sales
   const salesStat = db.prepare(`
@@ -1291,13 +1322,45 @@ export function listBackups(): BackupItem[] {
   }));
 }
 
+export function createDownloadableDbSnapshot(): { filename: string; buffer: Buffer } {
+  const db = getDb();
+  const today = getBangladeshToday();
+  const filename = `niramoy-pharmacy-backup-${today}.sqlite`;
+  const tmpFile = path.join(
+    os.tmpdir(),
+    `niramoy-dl-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.sqlite`
+  );
+
+  try {
+    try {
+      db.exec('PRAGMA wal_checkpoint(TRUNCATE);');
+    } catch {
+      // ignore if not WAL
+    }
+    db.exec(`VACUUM INTO '${tmpFile.replace(/'/g, "''")}';`);
+    const buffer = fs.readFileSync(tmpFile);
+    const header = buffer.subarray(0, 16).toString('utf8');
+    if (!header.startsWith('SQLite format 3')) {
+      throw new Error('Failed to generate valid SQLite backup file.');
+    }
+    return { filename, buffer };
+  } finally {
+    if (fs.existsSync(tmpFile)) {
+      fs.unlinkSync(tmpFile);
+    }
+  }
+}
+
 export function restoreBackup(backupFilePath: string, adminPassword: string): boolean {
   const db = getDb();
 
-  // Validate admin password
+  // Validate admin password strictly
   const user = db.prepare("SELECT * FROM users WHERE username = 'admin'").get() as any;
-  if (!user || !user.password_hash) {
+  if (!user || !user.password_hash || !user.salt) {
     throw new Error('Admin user authentication failed.');
+  }
+  if (!adminPassword || !verifyPassword(adminPassword, user.password_hash, user.salt)) {
+    throw new Error('Incorrect administrator password.');
   }
 
   // First: CREATE A SAFETY BACKUP of current state before touching anything!
@@ -1312,6 +1375,17 @@ export function restoreBackup(backupFilePath: string, adminPassword: string): bo
   const header = fileBuffer.slice(0, 16).toString('utf-8');
   if (!header.startsWith('SQLite format 3')) {
     throw new Error('Corrupt or invalid backup file: SQLite header missing.');
+  }
+
+  // Verify SQLite integrity before replacing live DB
+  const testDb = new DatabaseSync(backupFilePath);
+  try {
+    const integrity = testDb.prepare('PRAGMA integrity_check;').get() as { integrity_check: string } | undefined;
+    if (!integrity || integrity.integrity_check !== 'ok') {
+      throw new Error('Backup integrity check failed.');
+    }
+  } finally {
+    testDb.close();
   }
 
   // Restore by closing active handle, replacing database file cleanly, and reopening
@@ -1337,6 +1411,21 @@ export function restoreBackup(backupFilePath: string, adminPassword: string): bo
   `).run(`Database restored from backup: ${backupFilePath}`, now);
 
   return true;
+}
+
+export function restoreBackupFromBuffer(fileBuffer: Buffer, adminPassword: string): boolean {
+  const tmpUploadPath = path.join(
+    os.tmpdir(),
+    `niramoy-upload-${process.pid}-${Date.now()}.sqlite`
+  );
+  try {
+    fs.writeFileSync(tmpUploadPath, fileBuffer);
+    return restoreBackup(tmpUploadPath, adminPassword);
+  } finally {
+    if (fs.existsSync(tmpUploadPath)) {
+      fs.unlinkSync(tmpUploadPath);
+    }
+  }
 }
 
 export function resetDatabase(

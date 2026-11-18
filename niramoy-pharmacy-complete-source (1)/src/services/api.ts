@@ -268,6 +268,14 @@ export const api = {
     });
     return handleResponse(res);
   },
+  async restoreBackupFromFile(fileBase64: string, adminPassword: string): Promise<{ success: boolean; message: string }> {
+    const res = await fetch(`${API_BASE}/backups/upload-restore`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fileBase64, adminPassword })
+    });
+    return handleResponse(res);
+  },
   async resetDatabase(
     mode: 'transactions' | 'demo' | 'full',
     adminPassword: string
